@@ -2,6 +2,7 @@
 yt-dlp>=2024.4.9
 openai-whisper>=20240927
 shazamio>=0.7.0
+playwright>=1.60.0
 
 # MCP server (optional — only needed to expose your vault to Claude/Cursor)
 mcp>=1.0

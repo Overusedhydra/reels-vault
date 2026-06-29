@@ -26,17 +26,116 @@ import shutil
 from datetime import datetime, timezone
 
 
-def extract_metadata(url: str, output_dir: str, cookies_from: str = None) -> tuple:
-    """Download reel and extract metadata using yt-dlp.
+def _resolve_tool(name: str) -> str:
+    """Find a CLI tool, preferring the one installed in this Python's env.
 
-    Returns (video_path, metadata_dict). yt-dlp handles IG's auth quirks via
-    --cookies-from-browser if needed; we don't ship a brittle scraper fallback.
+    Tools like yt-dlp get pip-installed into the venv's bin/ dir, but if the
+    script is run as `path/to/.venv/bin/python3 ...` (venv not activated),
+    that bin/ isn't on PATH and a bare `name` lookup fails. So we prefer the
+    sibling binary next to the running interpreter, then fall back to PATH.
     """
+    venv_bin = os.path.join(os.path.dirname(sys.executable), name)
+    if os.path.exists(venv_bin):
+        return venv_bin
+    return name  # let subprocess fail loudly if it's truly not installed
+
+
+def _download_via_playwright(url: str, output_dir: str, session_file: str = None) -> tuple:
+    """Fallback downloader using Playwright (no Chrome keychain needed)."""
+    from playwright.sync_api import sync_playwright
+
+    video_path = os.path.join(output_dir, "reel.mp4")
+    metadata = {}
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        context = browser.new_context(
+            user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+        )
+
+        if session_file and os.path.exists(session_file):
+            try:
+                with open(session_file) as f:
+                    cookies = json.load(f)
+                if cookies:
+                    context.add_cookies(cookies)
+            except Exception:
+                pass
+
+        page = context.new_page()
+        try:
+            page.goto(url, wait_until="networkidle", timeout=30000)
+        except Exception:
+            pass
+        page.wait_for_timeout(5000)
+
+        video_url = page.evaluate("""
+            () => {
+                const html = document.documentElement.innerHTML;
+                const vidMatch = html.match(/"video_versions":\\s*(\\[{.*?}\\])/);
+                if (vidMatch) {
+                    try {
+                        const versions = JSON.parse(vidMatch[1]);
+                        for (const v of versions) {
+                            if (v && v.url && typeof v.url === 'string') {
+                                return v.url.replace(/\\\\u0026/g, '&').replace(/\\u0026/g, '&');
+                            }
+                        }
+                    } catch(e) {}
+                }
+                const m2 = html.match(/"video_url":\\s*"(https:[^"]+)"/);
+                if (m2) return m2[1].replace(/\\\\u0026/g, '&').replace(/\\u0026/g, '&');
+                return null;
+            }
+        """)
+
+        if not video_url:
+            browser.close()
+            raise RuntimeError("Could not extract video URL from page")
+
+        import urllib.request
+        req = urllib.request.Request(video_url, headers={
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+            "Referer": "https://www.instagram.com/",
+        })
+        with urllib.request.urlopen(req) as resp:
+            data = resp.read()
+        with open(video_path, "wb") as f:
+            f.write(data)
+
+        page_meta = page.evaluate("""
+            () => {
+                const data = {};
+                const tags = document.querySelectorAll('meta[property^="og:"]');
+                tags.forEach(t => {
+                    const key = t.getAttribute('property').replace('og:', '');
+                    data[key] = t.content;
+                });
+                const desc = document.querySelector('meta[name="description"]');
+                if (desc) data['description'] = desc.content;
+                return data;
+            }
+        """)
+        if page_meta:
+            metadata = {
+                "author": page_meta.get("title", "").split(" on Instagram")[0].strip(),
+                "caption": page_meta.get("description", ""),
+                "url": url,
+                "title": page_meta.get("title", ""),
+            }
+
+        browser.close()
+
+    return video_path, metadata
+
+
+def extract_metadata(url: str, output_dir: str, cookies_from: str = None, session_file: str = None) -> tuple:
+    """Download reel and extract metadata using yt-dlp, with Playwright fallback."""
     video_path = os.path.join(output_dir, "reel.mp4")
     info_path = os.path.join(output_dir, "reel.info.json")
 
     cmd = [
-        "yt-dlp",
+        _resolve_tool("yt-dlp"),
         "--write-info-json",
         "--no-playlist",
         "-o", video_path,
@@ -47,11 +146,8 @@ def extract_metadata(url: str, output_dir: str, cookies_from: str = None) -> tup
 
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
-        raise RuntimeError(
-            f"yt-dlp failed to download the reel.\n"
-            f"  stderr: {result.stderr.strip()}\n"
-            f"  If IG is blocking you, try: --cookies-from chrome"
-        )
+        print("yt-dlp failed, trying Playwright fallback...", file=sys.stderr)
+        return _download_via_playwright(url, output_dir, session_file=session_file)
 
     # yt-dlp may name the file slightly differently; find the .mp4 it wrote
     if not os.path.exists(video_path):
@@ -93,7 +189,7 @@ def extract_audio(video_path: str, output_dir: str) -> str:
     """Extract a mono 16kHz WAV from the video using ffmpeg."""
     audio_path = os.path.join(output_dir, "audio.wav")
     cmd = [
-        "ffmpeg", "-y", "-i", video_path,
+        _resolve_tool("ffmpeg"), "-y", "-i", video_path,
         "-vn", "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1",
         audio_path,
     ]
@@ -272,6 +368,8 @@ def main():
                         help="Skip Shazam music identification")
     parser.add_argument("--cookies-from", default=None,
                         help="Browser to read cookies from (e.g. chrome, firefox) for auth")
+    parser.add_argument("--session-file", default=None,
+                        help="Path to Instagram session cookies JSON (for Playwright fallback)")
     args = parser.parse_args()
 
     # Tidy up temp files when we're done
@@ -280,7 +378,7 @@ def main():
 
     try:
         print("Downloading reel...", file=sys.stderr)
-        video_path, metadata = extract_metadata(args.url, work_dir, cookies_from=args.cookies_from)
+        video_path, metadata = extract_metadata(args.url, work_dir, cookies_from=args.cookies_from, session_file=args.session_file)
 
         print("Extracting audio...", file=sys.stderr)
         audio_path = extract_audio(video_path, work_dir)
