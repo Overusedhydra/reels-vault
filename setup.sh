@@ -60,9 +60,13 @@ if [ ! -d "$VENV_DIR" ]; then
 fi
 
 echo ""
-echo "Installing Python packages (yt-dlp, whisper, shazamio, mcp)..."
+echo "Installing Python packages (yt-dlp, whisper, shazamio, playwright)..."
 "$VENV_DIR/bin/pip" install --upgrade pip >/dev/null
 "$VENV_DIR/bin/pip" install -r "$SCRIPT_DIR/requirements.txt"
+
+echo ""
+echo "Installing Playwright Chromium browser..."
+"$VENV_DIR/bin/playwright" install chromium
 
 echo ""
 echo "✅ Setup complete!"

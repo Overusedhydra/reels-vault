@@ -12,14 +12,14 @@ Usage — add to your client's MCP config:
       "mcpServers": {
         "reels-vault": {
           "command": "python3",
-          "args": ["/path/to/reels-vault/mcp/server.py"],
+          "args": ["/path/to/reels-vault/mcp_server/server.py"],
           "env": { "REELS_VAULT_PATH": "/path/to/your-vault/Reel Vault" }
         }
       }
     }
 
 REELS_VAULT_PATH defaults to the vault you connected via `scripts/connect.py`.
-Run it standalone (`python3 mcp/server.py`) for a quick smoke test.
+Run it standalone (`python3 mcp_server/server.py`) for a quick smoke test.
 """
 
 import os

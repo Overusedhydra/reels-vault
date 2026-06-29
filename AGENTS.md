@@ -8,7 +8,7 @@ Open-source marketing intelligence pipeline. Extract transcripts, music, and ins
 - `scripts/connect.py` — One-time Obsidian vault connection (creates `Reel Vault/` folder)
 - `scripts/config.py` — Stores the connected vault path at `~/.config/reels-vault/config.json`
 - `vault-template/` — Obsidian knowledge base template (topics, creators, recipes, extracts)
-- `mcp/server.py` — Real MCP server (FastMCP) for Claude/Cursor integration
+- `mcp_server/server.py` — Real MCP server (FastMCP) for Claude/Cursor integration
 - `prompts/` — AI prompt templates for analysis
 
 ## Stack

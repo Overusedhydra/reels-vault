@@ -17,7 +17,7 @@ Instagram Reel → Download → Transcribe → Identify Music → File by Topic 
 - **Extract** video, transcript, metadata, and music from any public reel
 - **Organize** in your own Obsidian vault — grouped by topic, not dumped in a pile
 - **Connect** to Claude/Cursor via MCP so your AI can search your reels
-- **No API keys, no cloud** — runs 100% on your machine
+- **No cloud, no paid APIs** — runs entirely on your machine (Instagram cookies may be needed for downloads; see Limitations)
 
 ---
 
@@ -25,7 +25,7 @@ Instagram Reel → Download → Transcribe → Identify Music → File by Topic 
 
 ```bash
 # 1. Clone & set up
-git clone https://github.com/yourusername/reels-vault.git   # ← TODO: your username
+git clone https://github.com/Overusedhydra/reels-vault.git
 cd reels-vault
 chmod +x setup.sh
 ./setup.sh
@@ -117,7 +117,7 @@ Add the MCP server to Claude Desktop, Cursor, or any MCP client:
   "mcpServers": {
     "reels-vault": {
       "command": "/path/to/reels-vault/.venv/bin/python3",
-      "args": ["/path/to/reels-vault/mcp/server.py"],
+      "args": ["/path/to/reels-vault/mcp_server/server.py"],
       "env": { "REELS_VAULT_PATH": "/path/to/your-vault/Reel Vault" }
     }
   }
@@ -168,7 +168,7 @@ Here's how to take a company's ads from this to this...
 
 - **Python** 3.10+ (enforced by `setup.sh`)
 - **ffmpeg** (auto-installed on macOS/Linux via Homebrew/apt)
-- **yt-dlp**, **Whisper**, **shazamio**, **mcp** — all pip-installed by `setup.sh`
+- **yt-dlp**, **Whisper**, **shazamio**, **Playwright** — all pip-installed by `setup.sh`
 - ~1 GB disk for the Whisper `base` model
 
 **macOS / Linux:** run `./setup.sh`.
