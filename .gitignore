@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+
+# Dependencies
+node_modules/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Reels Vault specific
+.session/
+*.mp4
+*.wav
+*.jpg
+extractions/
+vault/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
