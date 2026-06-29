@@ -76,7 +76,7 @@ Trending sound + Your niche twist + Strong hook + Loop ending
 
 ```dataview
 LIST
-FROM "content-recipes/extracts"
+FROM ""
 WHERE contains(tags, "short-form") OR contains(tags, "reels")
 SORT file.cday DESC
 ```

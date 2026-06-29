@@ -36,7 +36,7 @@ A cross-referenced knowledge base built from top creators. Every insight is orga
 
 ```dataview
 TABLE niche AS "Niche", key_lesson AS "Key Lesson"
-FROM "content-recipes/creators"
+FROM "creators"
 WHERE file.name != "Creator Template"
 SORT file.name ASC
 ```
@@ -45,7 +45,7 @@ SORT file.name ASC
 
 ```dataview
 TABLE creator AS "Creator", length(transcript) AS "Words", file.cday AS "Added"
-FROM "content-recipes/extracts"
+FROM "extracts"
 WHERE file.name != "Extracts"
 SORT file.cday DESC
 ```
@@ -60,7 +60,7 @@ SORT file.cday DESC
 
 ```dataview
 TABLE creator AS "Creator", file.cday AS "Added"
-FROM "content-recipes/extracts"
+FROM "extracts"
 WHERE file.name != "Extracts"
 SORT file.cday DESC
 LIMIT 10

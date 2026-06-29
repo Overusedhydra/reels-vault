@@ -80,7 +80,7 @@ Getting your content in front of the right people, at the right time, on the rig
 
 ```dataview
 LIST
-FROM "content-recipes/extracts"
+FROM ""
 WHERE contains(tags, "distribution") OR contains(tags, "growth")
 SORT file.cday DESC
 ```

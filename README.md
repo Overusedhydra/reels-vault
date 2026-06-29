@@ -1,112 +1,149 @@
 # 🎬 Reels Vault
 
-**Extract. Understand. Organize. Plug into AI.**
+**Paste a URL. Build a knowledge base. Plug into AI.**
 
-An open-source marketing intelligence pipeline that extracts transcripts, music, and insights from any Instagram reel — then organizes them into an AI-ready knowledge base.
+A local-first pipeline that extracts transcripts, music, and metadata from any
+Instagram reel, then organizes them into your Obsidian vault — tagged by
+**topic** and **creator** so you can search across hundreds of reels from
+hundreds of creators.
 
-## What It Does
+The idea: instead of saving scattered bookmarks, you build a real library.
+*"What do 50 creators say about hooks?"* → one search.
 
 ```
-Instagram Reel → Download → Transcribe → Identify Music → Organize → AI-Ready
+Instagram Reel → Download → Transcribe → Identify Music → File by Topic → AI-Ready
 ```
 
-- **Extract** any public Instagram reel (video, transcript, metadata)
-- **Understand** content with Whisper transcription + Shazam music ID
-- **Organize** into an Obsidian knowledge base (topics, creators, recipes)
-- **Connect** to AI agents via MCP server or JSON exports
+- **Extract** video, transcript, metadata, and music from any public reel
+- **Organize** in your own Obsidian vault — grouped by topic, not dumped in a pile
+- **Connect** to Claude/Cursor via MCP so your AI can search your reels
+- **No API keys, no cloud** — runs 100% on your machine
+
+---
 
 ## Quick Start
 
 ```bash
-# 1. Clone the repo
-git clone https://github.com/yourusername/reels-vault.git
+# 1. Clone & set up
+git clone https://github.com/yourusername/reels-vault.git   # ← TODO: your username
 cd reels-vault
-
-# 2. Run setup (installs everything)
 chmod +x setup.sh
 ./setup.sh
 
+# 2. Connect your Obsidian vault (one time)
+.venv/bin/python3 scripts/connect.py
+
 # 3. Extract a reel
-.venv/bin/python3 scripts/extract_reel.py "https://www.instagram.com/reels/ABC123/"
+.venv/bin/python3 scripts/extract_reel.py "https://www.instagram.com/reels/ABC123/" --topic content-creation
 ```
 
-## Features
+That's it. The reel lands in your vault at `Reel Vault/content-creation/`,
+tagged with creator, topic, and hashtags. Do it 200 times and you've got a
+searchable library — organized automatically.
 
-### Extraction Pipeline
-- **yt-dlp** for fast downloads (when available)
-- **Playwright** fallback (no Chrome keychain needed)
-- **Whisper** transcription (multiple model sizes)
-- **Shazam** music identification
-- **Frame extraction** for visual analysis
+---
 
-### Knowledge Base Template
-Pre-built Obsidian vault structure with:
-- **Topic notes** — Cross-referenced by creator (Hooks, Scripting, Editing, etc.)
-- **Creator profiles** — Per-creator frameworks and systems
-- **Recipe book** — Copy-paste formulas from top creators
-- **Extracts** — Raw transcripts with metadata
+## How It Works
 
-### AI Integration
-- **MCP server** — Query your vault from Claude, Cursor, or any MCP tool
-- **JSON export** — Structured data for any AI workflow
-- **Prompt templates** — Analyze reels, extract frameworks, generate recipes
-
-## Usage
-
-### Extract a Reel
+### 1. Connect your vault (one time)
 
 ```bash
-# Basic extraction
-.venv/bin/python3 scripts/extract_reel.py "https://www.instagram.com/reels/ABC123/"
+python3 scripts/connect.py
+```
 
-# Save to a directory
-.venv/bin/python3 scripts/extract_reel.py "URL" --save-dir ./extractions
+Points the pipeline at your Obsidian vault and drops in a `Reel Vault/` folder
+with topic notes, creator profiles, and a recipe book. The path is remembered,
+so you never type it again.
+
+### 2. Extract reels
+
+```bash
+# Basic — files under a topic
+.venv/bin/python3 scripts/extract_reel.py "URL" --topic content-creation
 
 # Better transcription (slower)
-.venv/bin/python3 scripts/extract_reel.py "URL" --whisper-model small
+.venv/bin/python3 scripts/extract_reel.py "URL" --topic marketing --whisper-model small
 
-# JSON output for AI processing
+# Skip Shazam music ID (faster)
+.venv/bin/python3 scripts/extract_reel.py "URL" --topic ai --no-music
+
+# If Instagram blocks the download, authenticate via your browser
+.venv/bin/python3 scripts/extract_reel.py "URL" --cookies-from chrome
+
+# Raw JSON for custom pipelines
 .venv/bin/python3 scripts/extract_reel.py "URL" --json
-
-# Skip frame extraction
-.venv/bin/python3 scripts/extract_reel.py "URL" --no-frames
 ```
 
-### Set Up the Knowledge Base
+### 3. Your vault organizes itself
 
-```bash
-# Copy the vault template to your Obsidian vault
-cp -r vault-template/ ~/path/to/your/obsidian-vault/content-recipes/
+Every extracted reel gets a frontmatter label at the top:
+
+```yaml
+---
+creator: "Alex Hormozi"
+handle: hormozi
+topic: content-creation
+tags: [ads, hooks]
+source: https://www.instagram.com/reels/ABC123/
+extracted: 2026-06-29
+---
 ```
 
-### Use the MCP Server
+…so Obsidian can group and filter them automatically. Your vault structure:
 
-```python
-# Add to your MCP config
+```
+Your Vault/
+  Reel Vault/
+    content-creation/      ← reels grouped by topic
+      hormozi-reel-2026-06-29.md
+      ali-abdaal-reel-2026-06-29.md
+    marketing/
+      garyvee-reel-2026-06-29.md
+    topics/                ← cross-creator notes (Hooks, Scripting, ...)
+    creators/              ← per-creator profiles
+    recipes/               ← copy-paste formulas
+```
+
+Install the [Dataview](https://github.com/blacksmithgu/obsidian-dataview)
+plugin in Obsidian and the built-in index/queries light up automatically.
+
+### 4. Plug into AI (optional)
+
+Add the MCP server to Claude Desktop, Cursor, or any MCP client:
+
+```jsonc
+// Claude Desktop: ~/Library/Application Support/Claude/claude_desktop_config.json
 {
   "mcpServers": {
     "reels-vault": {
-      "command": "python3",
-      "args": ["path/to/reels-vault/mcp/server.py"]
+      "command": "/path/to/reels-vault/.venv/bin/python3",
+      "args": ["/path/to/reels-vault/mcp/server.py"],
+      "env": { "REELS_VAULT_PATH": "/path/to/your-vault/Reel Vault" }
     }
   }
 }
 ```
 
+Now your AI can `search_reels`, `list_topics`, `list_creators`, `read_note`,
+and `vault_status` — it reads your reel library without you pasting anything.
+
+---
+
 ## Output Example
 
 ```markdown
-# Instagram Reel Extraction
-
-**Source:** https://www.instagram.com/reels/ABC123/
-**Extracted:** 2026-06-29 12:00 UTC
-
-## Metadata
-- **Creator:** Alex Hormozi (@hormozi)
-- **Views:** 44,000
-- **Likes:** 44,000
+---
+creator: "Alex Hormozi"
+handle: hormozi
+topic: content-creation
+tags: [ads, hooks]
+source: https://www.instagram.com/reels/ABC123/
+extracted: 2026-06-29
+---
 
 ## Transcript
+*Language detected: en*
+
 Here's how to take a company's ads from this to this...
 
 ## Timestamped Transcript
@@ -125,24 +162,39 @@ Here's how to take a company's ads from this to this...
 | medium | Slow     | Great    | ~5 GB   |
 | large  | Slowest  | Best     | ~10 GB  |
 
+---
+
 ## Requirements
 
-- Python 3.10+
-- ffmpeg
-- yt-dlp
-- ~1 GB disk for Whisper base model
+- **Python** 3.10+ (enforced by `setup.sh`)
+- **ffmpeg** (auto-installed on macOS/Linux via Homebrew/apt)
+- **yt-dlp**, **Whisper**, **shazamio**, **mcp** — all pip-installed by `setup.sh`
+- ~1 GB disk for the Whisper `base` model
+
+**macOS / Linux:** run `./setup.sh`.
+**Windows:** install [Python](https://python.org), [ffmpeg](https://ffmpeg.org/download.html),
+then `pip install -r requirements.txt` inside a venv.
+
+## Limitations
+
+- Instagram rate-limits and changes often. If a download fails, retry with
+  `--cookies-from chrome` (or firefox/safari) to authenticate.
+- Whisper `base` is fast but not perfect — use `small`/`medium` for accuracy.
+- Shazam works on the audio mix; speech-heavy reels may not ID a track.
+- Respect creators' content and Instagram's Terms of Service. For personal
+  research/learning.
 
 ## License
 
-MIT License — see [LICENSE](LICENSE) for details.
+MIT — see [LICENSE](LICENSE).
 
 ## Contributing
 
-Contributions welcome! Open an issue or submit a PR.
+Issues and PRs welcome.
 
 ## Acknowledgments
 
-- [openai-whisper](https://github.com/openai/whisper) for transcription
-- [shazamio](https://github.com/dotenv-io/shazamio) for music identification
-- [yt-dlp](https://github.com/yt-dlp/yt-dlp) for video downloading
-- [Playwright](https://playwright.dev/) for browser automation
+- [yt-dlp](https://github.com/yt-dlp/yt-dlp) — video downloading
+- [openai-whisper](https://github.com/openai/whisper) — transcription
+- [shazamio](https://github.com/dotenv-io/shazamio) — music identification
+- [MCP](https://github.com/modelcontextprotocol) — AI tool integration

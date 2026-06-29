@@ -51,7 +51,7 @@ Source: [[Alex Hormozi — Ad Volume Framework]]
 
 ```dataview
 LIST
-FROM "content-recipes/extracts"
+FROM "extracts"
 WHERE creator = "Alex Hormozi"
 SORT file.cday DESC
 ```
@@ -60,6 +60,6 @@ SORT file.cday DESC
 
 ```dataview
 LIST
-FROM "content-recipes/recipes"
+FROM "recipes"
 WHERE contains(content, "Hormozi") OR contains(content, "hormozi")
 ```

@@ -81,7 +81,7 @@ Purchase → Onboarding → Success → Upsell → Referral
 
 ```dataview
 LIST
-FROM "content-recipes/extracts"
+FROM ""
 WHERE contains(tags, "marketing") OR contains(tags, "strategy") OR contains(tags, "brand")
 SORT file.cday DESC
 ```

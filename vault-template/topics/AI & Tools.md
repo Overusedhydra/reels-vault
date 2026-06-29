@@ -71,7 +71,7 @@ Raw footage → Auto-cut (Descript) → Captions (CapCut) → B-roll suggestions
 
 ```dataview
 LIST
-FROM "content-recipes/extracts"
+FROM ""
 WHERE contains(tags, "ai") OR contains(tags, "tools")
 SORT file.cday DESC
 ```

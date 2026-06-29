@@ -30,7 +30,7 @@ Source: [[extract-source]]
 
 ```dataview
 LIST
-FROM "content-creation/extracts"
+FROM "extracts"
 WHERE creator = "{{title}}"
 SORT file.cday DESC
 ```
@@ -39,6 +39,6 @@ SORT file.cday DESC
 
 ```dataview
 LIST
-FROM "content-creation/recipes"
+FROM "recipes"
 WHERE contains(content, "{{title}}")
 ```

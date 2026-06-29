@@ -12,7 +12,7 @@ Ready-to-use formulas from top creators. Copy, paste, customize, ship.
 
 ```dataview
 LIST
-FROM "content-recipes/recipes"
+FROM "recipes"
 WHERE file.name != "Recipe Book"
 SORT file.name ASC
 ```
@@ -21,7 +21,7 @@ SORT file.name ASC
 
 ```dataview
 TABLE tags AS "Tags"
-FROM "content-recipes/recipes"
+FROM "recipes"
 WHERE file.name != "Recipe Book"
 SORT file.name ASC
 ```

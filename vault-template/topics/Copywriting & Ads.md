@@ -85,7 +85,7 @@ Words that sell. From ad copy to landing pages to email sequences.
 
 ```dataview
 LIST
-FROM "content-recipes/extracts"
+FROM ""
 WHERE contains(tags, "copywriting") OR contains(tags, "ads")
 SORT file.cday DESC
 ```

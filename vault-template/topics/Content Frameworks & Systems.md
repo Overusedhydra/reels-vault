@@ -79,7 +79,7 @@ YouTube Video
 
 ```dataview
 LIST
-FROM "content-recipes/extracts"
+FROM ""
 WHERE contains(tags, "frameworks") OR contains(tags, "systems")
 SORT file.cday DESC
 ```

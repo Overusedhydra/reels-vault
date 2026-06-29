@@ -98,7 +98,7 @@ Stop scrolling. [Bold claim about what you're about to show].
 
 ```dataview
 LIST
-FROM "content-recipes/extracts"
+FROM ""
 WHERE contains(tags, "hooks")
 SORT file.cday DESC
 ```

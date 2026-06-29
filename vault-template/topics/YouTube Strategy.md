@@ -79,7 +79,7 @@ YouTube recommends videos based on:
 
 ```dataview
 LIST
-FROM "content-recipes/extracts"
+FROM ""
 WHERE contains(tags, "youtube")
 SORT file.cday DESC
 ```

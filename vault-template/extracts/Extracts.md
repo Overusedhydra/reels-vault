@@ -21,7 +21,7 @@ Raw transcripts and analysis from extracted reels. Each extract is tagged by top
 
 ```dataview
 TABLE creator AS "Creator", file.tags AS "Topics", file.cday AS "Added"
-FROM "content-recipes/extracts"
+FROM "extracts"
 WHERE file.name != "Extracts"
 SORT file.cday DESC
 ```
@@ -30,21 +30,21 @@ SORT file.cday DESC
 
 ```dataview
 TABLE file.tags AS "Topics", file.cday AS "Added"
-FROM "content-recipes/extracts"
+FROM "extracts"
 WHERE creator = "Alex Hormozi"
 SORT file.cday DESC
 ```
 
 ```dataview
 TABLE file.tags AS "Topics", file.cday AS "Added"
-FROM "content-recipes/extracts"
+FROM "extracts"
 WHERE creator = "Gary Vaynerchuk"
 SORT file.cday DESC
 ```
 
 ```dataview
 TABLE file.tags AS "Topics", file.cday AS "Added"
-FROM "content-recipes/extracts"
+FROM "extracts"
 WHERE creator = "Ali Abdaal"
 SORT file.cday DESC
 ```
@@ -53,21 +53,21 @@ SORT file.cday DESC
 
 ```dataview
 TABLE creator AS "Creator", file.cday AS "Added"
-FROM "content-recipes/extracts"
+FROM "extracts"
 WHERE contains(tags, "hooks")
 SORT file.cday DESC
 ```
 
 ```dataview
 TABLE creator AS "Creator", file.cday AS "Added"
-FROM "content-recipes/extracts"
+FROM "extracts"
 WHERE contains(tags, "ads")
 SORT file.cday DESC
 ```
 
 ```dataview
 TABLE creator AS "Creator", file.cday AS "Added"
-FROM "content-recipes/extracts"
+FROM "extracts"
 WHERE contains(tags, "youtube")
 SORT file.cday DESC
 ```

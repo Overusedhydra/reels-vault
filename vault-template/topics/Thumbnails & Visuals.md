@@ -68,7 +68,7 @@ Click-through rate (CTR) determines if your content gets seen. Thumbnails are th
 
 ```dataview
 LIST
-FROM "content-recipes/extracts"
+FROM ""
 WHERE contains(tags, "thumbnails")
 SORT file.cday DESC
 ```

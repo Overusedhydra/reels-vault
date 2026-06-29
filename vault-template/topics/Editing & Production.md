@@ -65,7 +65,7 @@ How to edit content so it holds attention and looks professional.
 
 ```dataview
 LIST
-FROM "content-recipes/extracts"
+FROM ""
 WHERE contains(tags, "editing")
 SORT file.cday DESC
 ```

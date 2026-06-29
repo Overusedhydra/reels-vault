@@ -81,7 +81,7 @@ How to structure content so people actually watch until the end.
 
 ```dataview
 LIST
-FROM "content-recipes/extracts"
+FROM ""
 WHERE contains(tags, "scripting")
 SORT file.cday DESC
 ```

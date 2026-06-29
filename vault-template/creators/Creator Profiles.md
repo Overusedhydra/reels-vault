@@ -12,7 +12,7 @@ Every creator in one place. Click any name to see everything they've taught acro
 
 ```dataview
 TABLE niche AS "Niche", key_lesson AS "Key Lesson", extract_count AS "Extracts"
-FROM "content-recipes/creators"
+FROM "creators"
 WHERE file.name != "Creator Template"
 SORT file.name ASC
 ```
@@ -51,7 +51,7 @@ When you paste a reel from someone new:
 
 ```dataview
 LIST
-FROM "content-recipes/creators"
+FROM "creators"
 WHERE file.name != "Creator Template"
 SORT file.name ASC
 ```
