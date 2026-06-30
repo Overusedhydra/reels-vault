@@ -6,6 +6,12 @@
 
 **Paste a reel URL. Get a transcript. Ask your AI about it.**
 
+<p align="center">
+  <img src="assets/demo.gif" alt="Reels Vault demo — ask Claude to install, paste a reel link, and watch it get transcribed, auto-tagged, and filed into your Obsidian vault" width="800">
+</p>
+
+<p align="center"><em>Ask Claude to install it → paste a reel link → it's transcribed, auto-tagged by creator &amp; topic, and filed into your vault.</em></p>
+
 A local-first pipeline that extracts transcripts, music, and metadata from any
 Instagram reel, then organizes them into your Obsidian vault — tagged by
 **topic** and **creator** so you can search across hundreds of reels from
