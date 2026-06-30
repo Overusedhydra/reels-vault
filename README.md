@@ -2,9 +2,15 @@
   <img src="logo.svg" alt="Reels Vault" width="200">
 </p>
 
-# 🎬 Reels Vault
+<h1 align="center">🎬 Reels Vault</h1>
 
-**Paste a reel URL. Get a transcript. Ask your AI about it.**
+<p align="center">
+  <strong>Paste a reel URL. Get a transcript. Ask your AI about it.</strong>
+</p>
+
+<p align="center">
+  <img src="assets/gifs/01-claude-install.gif" alt="Install Reels Vault via Claude" width="600">
+</p>
 
 A local-first pipeline that extracts transcripts, music, and metadata from any
 Instagram reel, then organizes them into your Obsidian vault — tagged by
@@ -83,6 +89,10 @@ curl -fsSL https://raw.githubusercontent.com/Overusedhydra/reels-vault/main/inst
 That's it. Claude downloads it, transcribes it, finds the music, and files it
 into your Obsidian vault. No commands. No copy-pasting.
 
+<p align="center">
+  <img src="assets/gifs/02-claude-extract.gif" alt="Claude extracts a reel" width="600">
+</p>
+
 Want to search what you've saved? Just ask:
 
 > *"What do creators say about hooks?"*
@@ -147,6 +157,10 @@ extracted: 2026-06-29
 
 …so Obsidian can group and filter them automatically. Your vault structure:
 
+<p align="center">
+  <img src="assets/gifs/03-obsidian-metadata.gif" alt="Obsidian note with metadata" width="600">
+</p>
+
 ```
 Your Vault/
   Reel Vault/
@@ -159,6 +173,10 @@ Your Vault/
     creators/              ← per-creator profiles
     recipes/               ← copy-paste formulas
 ```
+
+<p align="center">
+  <img src="assets/gifs/04-obsidian-transcript.gif" alt="Timestamped transcript" width="600">
+</p>
 
 Install the [Dataview](https://github.com/blacksmithgu/obsidian-dataview)
 plugin in Obsidian and the built-in index/queries light up automatically.
