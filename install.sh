@@ -56,8 +56,14 @@ echo "⚙️  Installing (this can take a few minutes the first time)..."
 chmod +x setup.sh
 ./setup.sh
 
-# Enable the short `reels-vault` command inside the workspace
-.venv/bin/pip install -e . -q
+# Enable the short `reels-vault` command inside the workspace.
+# setup.sh makes the venv with uv when available (uv venvs have no pip), so
+# match that here instead of assuming `.venv/bin/pip` exists.
+if command -v uv >/dev/null 2>&1; then
+    uv pip install --python .venv/bin/python -e . -q
+else
+    .venv/bin/pip install -e . -q
+fi
 
 # ---------------------------------------------------------------------------
 # 4. Connect the Obsidian vault.

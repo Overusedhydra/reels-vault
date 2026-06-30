@@ -63,6 +63,12 @@ else
     "$VENV_DIR/bin/pip" install -r "$SCRIPT_DIR/requirements.txt"
 fi
 
+# Browser for the Playwright download fallback (yt-dlp is primary). Best-effort:
+# don't fail the whole setup if the download hiccups.
+echo "Installing Playwright browser (download fallback)..."
+"$VENV_DIR/bin/python" -m playwright install chromium || \
+    echo "  (skipped — yt-dlp is the primary downloader; browser fallback unavailable)"
+
 echo ""
 echo "Setup complete!"
 echo "  Connect vault:  $VENV_DIR/bin/reels-vault-connect"
