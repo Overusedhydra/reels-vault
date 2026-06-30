@@ -228,10 +228,19 @@ def extract_reel(url: str, topic: str = "", whisper_model: str = "base",
 
 
 if __name__ == "__main__":
-    # Standalone smoke test (doesn't start the server loop)
-    print("Reels Vault MCP Server")
-    print(f"Vault path: {VAULT}")
-    if VAULT.exists():
-        print(vault_status())
-    else:
-        print("(no vault connected — run scripts/connect.py or set REELS_VAULT_PATH)")
+    # `--check` runs a standalone smoke test and exits. Everything goes to
+    # stderr so it can never corrupt the stdio JSON-RPC stream.
+    if "--check" in sys.argv:
+        print("Reels Vault MCP Server", file=sys.stderr)
+        print(f"Vault path: {VAULT}", file=sys.stderr)
+        if VAULT.exists():
+            print(vault_status(), file=sys.stderr)
+        else:
+            print("(no vault connected — run scripts/connect.py or set "
+                  "REELS_VAULT_PATH)", file=sys.stderr)
+        sys.exit(0)
+
+    # Default invocation (what Claude Desktop / Cursor launch): serve over stdio.
+    # A short banner on stderr is fine — clients read JSON-RPC from stdout only.
+    print(f"Reels Vault MCP Server — vault: {VAULT}", file=sys.stderr)
+    mcp.run()

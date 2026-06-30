@@ -13,19 +13,28 @@ echo ""
 # ----------------------------------------------------------------------------
 # 1. Python 3.10+ (actually enforced this time)
 # ----------------------------------------------------------------------------
-if ! command -v python3 &> /dev/null; then
-    echo "❌ Python 3 is required."
-    echo "   macOS:  brew install python"
+# Find a Python 3.10+ interpreter. The default `python3` is often older
+# (e.g. macOS ships 3.9), so probe common versioned names too.
+PYTHON=""
+for candidate in python3.13 python3.12 python3.11 python3.10 python3 python; do
+    if command -v "$candidate" &> /dev/null; then
+        if "$candidate" -c 'import sys; sys.exit(0 if sys.version_info >= (3,10) else 1)' 2>/dev/null; then
+            PYTHON="$candidate"
+            break
+        fi
+    fi
+done
+
+if [ -z "$PYTHON" ]; then
+    echo "❌ Python 3.10+ is required but none was found on your PATH."
+    if command -v python3 &> /dev/null; then
+        echo "   The newest you have is $(python3 --version)."
+    fi
+    echo "   macOS:  brew install python@3.12"
     echo "   Ubuntu: sudo apt install python3 python3-venv python3-pip"
     exit 1
 fi
-
-PY_OK=$(python3 -c 'import sys; print(1 if sys.version_info >= (3,10) else 0)')
-if [ "$PY_OK" != "1" ]; then
-    echo "❌ Python 3.10+ required. You have $(python3 --version)."
-    exit 1
-fi
-echo "✓ Python $(python3 --version)"
+echo "✓ Python $("$PYTHON" --version) ($PYTHON)"
 
 # ----------------------------------------------------------------------------
 # 2. ffmpeg (system dependency, can't pip install reliably)
@@ -56,7 +65,7 @@ VENV_DIR="$SCRIPT_DIR/.venv"
 if [ ! -d "$VENV_DIR" ]; then
     echo ""
     echo "Creating virtual environment..."
-    python3 -m venv "$VENV_DIR"
+    "$PYTHON" -m venv "$VENV_DIR"
 fi
 
 echo ""
