@@ -1,6 +1,6 @@
 # 🎬 Reels Vault
 
-**Paste a URL. Build a knowledge base. Plug into AI.**
+**Paste a reel URL. Get a transcript. Ask your AI about it.
 
 A local-first pipeline that extracts transcripts, music, and metadata from any
 Instagram reel, then organizes them into your Obsidian vault — tagged by
