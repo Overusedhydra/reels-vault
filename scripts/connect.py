@@ -86,8 +86,13 @@ def connect(vault_path: str = None) -> str:
 
     reel_vault_path = _create_reel_vault(vault_path)
 
-    # Remember it
-    save_config({"vault_path": reel_vault_path})
+    # Remember the vault path *and* where this repo lives, so the optional
+    # Claude skill (skills/reels-vault/) can locate the venv + scripts without
+    # the user wiring up any paths by hand.
+    install_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    cfg = load_config()
+    cfg.update({"vault_path": reel_vault_path, "install_dir": install_dir})
+    save_config(cfg)
 
     print()
     print(f"✅ Connected!")

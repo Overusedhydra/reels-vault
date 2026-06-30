@@ -27,6 +27,29 @@ Instagram Reel → Download → Transcribe → Identify Music → File by Topic 
 
 ## Quick Start
 
+### Easiest — install as a Claude skill (Claude Code)
+
+If you use [Claude Code](https://claude.com/claude-code), skip the MCP config
+entirely. Install Reels Vault, then drop the bundled skill into your skills
+folder:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Overusedhydra/reels-vault/main/install.sh | bash
+ln -s ~/reels-vault/skills/reels-vault ~/.claude/skills/reels-vault
+```
+
+> Installed somewhere other than `~/reels-vault`? Point the symlink at
+> `<install-dir>/skills/reels-vault` instead.
+
+Now just talk to Claude — no JSON to edit, no server to configure:
+
+> *"Save this reel: https://www.instagram.com/reels/ABC123/"*
+> *"What do creators say about hooks?"*
+
+The skill finds your install automatically (via the path `connect.py` records)
+and runs the same CLI under the hood. For other MCP clients (Claude Desktop,
+Cursor, Continue), use the MCP server setup below instead.
+
 ### The easy way — use Claude (no terminal needed)
 
 **Step 1:** Install Reels Vault (paste this in your terminal — one time only):
