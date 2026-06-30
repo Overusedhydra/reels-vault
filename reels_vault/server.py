@@ -63,7 +63,7 @@ def _iter_notes(subdir: str):
     # Also scan topic folders at the vault root (where reels actually land)
     if subdir == "extracts":
         for child in VAULT.iterdir():
-            if child.is_dir() and child.name not in ("topics", "creators", "recipes", "extracts"):
+            if child.is_dir() and child.name not in ("topics", "creators", "recipes", "extracts", "index"):
                 yield from child.rglob("*.md")
 
 
@@ -101,7 +101,7 @@ def list_topics() -> str:
     """List every topic folder (and the built-in topic notes) in the vault."""
     out = []
     # User-created topic folders (where reels get filed)
-    builtin = {"topics", "creators", "recipes", "extracts"}
+    builtin = {"topics", "creators", "recipes", "extracts", "index"}
     for child in sorted(VAULT.iterdir()):
         if child.is_dir() and child.name not in builtin:
             count = sum(1 for _ in child.rglob("*.md"))
