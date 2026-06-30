@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <video src="https://github.com/Overusedhydra/reels-vault/raw/main/assets/demo.mp4" width="800" controls muted autoplay loop playsinline></video>
+  <a href="https://github.com/Overusedhydra/reels-vault/raw/main/assets/demo.mp4"><img src="assets/demo.gif" alt="Reels Vault demo — ask Claude to install, paste a reel link, and watch it get transcribed, auto-tagged, and filed into your Obsidian vault" width="800"></a>
 </p>
 
 <p align="center"><em>Ask Claude to install it → paste a reel link → it's transcribed, auto-tagged by creator &amp; topic, and filed into your vault.</em></p>
