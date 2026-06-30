@@ -20,7 +20,7 @@ Python 3.10+, yt-dlp, Whisper, shazamio, ffmpeg, MCP SDK
 - Reel extraction: ✅ Working end-to-end (yt-dlp + Whisper + Shazam)
 - Vault connection: ✅ `connect.py` wires pipeline to Obsidian vault
 - Vault template: ✅ Built with Hormozi example, Dataview paths fixed
-- MCP server: ✅ Real FastMCP server (search/list/read tools)
+- MCP server: ✅ Real FastMCP server (extract_reel + search/list/read tools)
 - GitHub repo: ⏳ Ready to push
 
 ## Key Decisions

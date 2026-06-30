@@ -159,6 +159,74 @@ def vault_status() -> str:
             f"Path: {VAULT}")
 
 
+@mcp.tool()
+def extract_reel(url: str, topic: str = "", whisper_model: str = "base",
+                 skip_music: bool = False) -> str:
+    """Extract an Instagram reel and save it into the vault — no terminal needed.
+
+    Give it a reel URL and (optionally) a topic to file it under. This downloads
+    the reel, transcribes the speech, identifies the music, and writes a tagged
+    Markdown note into your connected vault. Use this when the user pastes an
+    Instagram reel/post link and wants it saved.
+
+    Args:
+        url: The Instagram reel or post URL.
+        topic: Optional topic folder to file under (e.g. "hooks", "marketing").
+        whisper_model: Transcription model — tiny/base/small/medium/large.
+        skip_music: Set True to skip Shazam music identification (faster).
+
+    Returns a short summary of what was saved and where.
+    """
+    import tempfile
+    import shutil
+    from extract_reel import (
+        extract_metadata, extract_audio, transcribe,
+        identify_music, format_output, save_extraction,
+    )
+
+    if not VAULT.exists():
+        return (f"No vault connected (looked at {VAULT}).\n"
+                "Run scripts/connect.py once, or set REELS_VAULT_PATH.")
+
+    work_dir = tempfile.mkdtemp(prefix="reel_")
+    try:
+        video_path, metadata = extract_metadata(url, work_dir)
+        audio_path = extract_audio(video_path, work_dir)
+        transcript = transcribe(audio_path, whisper_model)
+
+        music = {}
+        if not skip_music:
+            try:
+                music = identify_music(audio_path)
+            except Exception:
+                music = {}
+
+        output = format_output(metadata, transcript, original_url=url,
+                               music=music or None, topic=topic)
+        save_path = save_extraction(output, metadata, str(VAULT), topic=topic)
+
+        # Build a short, human-readable confirmation
+        creator = metadata.get("author", "Unknown")
+        words = len(transcript.get("text", "").split())
+        rel = os.path.relpath(save_path, str(VAULT))
+        lines = [
+            "✅ Reel saved to your vault.",
+            f"- Creator: {creator}",
+            f"- Filed under: {topic or '(vault root)'}",
+            f"- Transcript: {words} words ({transcript.get('language', '?')})",
+        ]
+        if music:
+            lines.append(f"- Music: {music.get('artist', '?')} — {music.get('title', '?')}")
+        lines.append(f"- Saved as: {rel}")
+        return "\n".join(lines)
+    except Exception as e:
+        return (f"Extraction failed: {e}\n"
+                "Instagram may be blocking the download — the user can retry, "
+                "or run the CLI with --cookies-from chrome to authenticate.")
+    finally:
+        shutil.rmtree(work_dir, ignore_errors=True)
+
+
 if __name__ == "__main__":
     # Standalone smoke test (doesn't start the server loop)
     print("Reels Vault MCP Server")

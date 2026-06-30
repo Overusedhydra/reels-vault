@@ -107,12 +107,26 @@ Your Vault/
 Install the [Dataview](https://github.com/blacksmithgu/obsidian-dataview)
 plugin in Obsidian and the built-in index/queries light up automatically.
 
-### 4. Plug into AI (optional)
+### 4. Let Claude do it for you (recommended — no terminal!)
 
-Add the MCP server to Claude Desktop, Cursor, or any MCP client:
+This is the easiest way to use Reels Vault. After a one-time setup, you just
+**talk to Claude** — paste a reel link and it does everything:
+
+> *"Save this reel to my vault: https://www.instagram.com/reel/ABC123/"*
+
+Claude downloads it, transcribes it, finds the music, and files it away. No
+commands, no copy-pasting transcripts. It can also search everything you've
+saved (*"What do creators say about hooks?"*).
+
+**One-time setup (about 2 minutes):**
+
+1. Open Claude Desktop → **Settings → Developer → Edit Config**. (This opens a
+   file called `claude_desktop_config.json`.)
+2. Paste in the block below.
+3. Replace the **3 paths** with your real ones (see the tip under the block).
+4. Save the file and fully quit + reopen Claude Desktop.
 
 ```jsonc
-// Claude Desktop: ~/Library/Application Support/Claude/claude_desktop_config.json
 {
   "mcpServers": {
     "reels-vault": {
@@ -124,8 +138,16 @@ Add the MCP server to Claude Desktop, Cursor, or any MCP client:
 }
 ```
 
-Now your AI can `search_reels`, `list_topics`, `list_creators`, `read_note`,
-and `vault_status` — it reads your reel library without you pasting anything.
+> **Tip — getting the paths right:** in the `reels-vault` folder, run `pwd` in
+> your terminal to print its full path. Swap that in for `/path/to/reels-vault`
+> (both times). For the last line, use the `Reel Vault` folder that
+> `connect.py` created inside your Obsidian vault.
+
+Once it's connected, Claude can `extract_reel` (save a new reel), `search_reels`,
+`list_topics`, `list_creators`, `read_note`, and `vault_status` — all by itself.
+
+> Prefer doing it by hand? The `extract_reel.py` command in step 2 above always
+> works without any of this.
 
 ---
 

@@ -34,3 +34,8 @@ vault/
 tmp/
 temp/
 *.tmp
+
+# Python build artifacts
+*.egg-info/
+build/
+dist/
