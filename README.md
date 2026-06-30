@@ -23,76 +23,85 @@ Instagram Reel → Download → Transcribe → Identify Music → File by Topic 
 
 ## Quick Start
 
-### Easiest — one line
+### The easy way — use Claude (no terminal needed)
 
-Paste this into your terminal. It downloads everything, installs it, and asks
-where your Obsidian vault is — all in one go:
+**Step 1:** Install Reels Vault (paste this in your terminal — one time only):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Overusedhydra/reels-vault/main/install.sh | bash
 ```
 
-Then save your first reel:
+**Step 2:** Open Claude Desktop → **Settings → Developer → Edit Config**. Paste this:
+
+```json
+{
+  "mcpServers": {
+    "reels-vault": {
+      "command": "/Users/you/reels-vault/.venv/bin/python3",
+      "args": ["/Users/you/reels-vault/mcp_server/server.py"]
+    }
+  }
+}
+```
+
+> Replace `/Users/you/reels-vault` with the actual path. Run `pwd` in the
+> `reels-vault` folder to find it.
+
+**Step 3:** Quit and reopen Claude Desktop.
+
+**Step 4:** Paste any reel link and tell Claude to save it:
+
+> *"Save this reel: https://www.instagram.com/reels/ABC123/"*
+
+That's it. Claude downloads it, transcribes it, finds the music, and files it
+into your Obsidian vault. No commands. No copy-pasting.
+
+Want to search what you've saved? Just ask:
+
+> *"What do creators say about hooks?"*
+
+---
+
+<details>
+<summary><strong>Prefer the terminal? (click to expand)</strong></summary>
 
 ```bash
+# Install
+curl -fsSL https://raw.githubusercontent.com/Overusedhydra/reels-vault/main/install.sh | bash
 cd ~/reels-vault
-.venv/bin/reels-vault "https://www.instagram.com/reels/ABC123/" --topic content-creation
+
+# Save a reel
+.venv/bin/reels-vault "https://www.instagram.com/reels/ABC123/" --topic hooks
+
+# Better transcription (slower)
+.venv/bin/reels-vault "URL" --topic marketing --whisper-model small
+
+# Skip music ID (faster)
+.venv/bin/reels-vault "URL" --topic ai --no-music
+
+# If Instagram blocks the download
+.venv/bin/reels-vault "URL" --cookies-from chrome
 ```
 
-### Manual — step by step
-
-Prefer to see each step?
-
-```bash
-# 1. Clone & set up
-git clone https://github.com/Overusedhydra/reels-vault.git
-cd reels-vault
-chmod +x setup.sh
-./setup.sh
-
-# 2. Connect your Obsidian vault (one time)
-.venv/bin/python3 scripts/connect.py
-
-# 3. Extract a reel
-.venv/bin/python3 scripts/extract_reel.py "https://www.instagram.com/reels/ABC123/" --topic content-creation
-```
-
-That's it. The reel lands in your vault at `Reel Vault/content-creation/`,
-tagged with creator, topic, and hashtags. Do it 200 times and you've got a
-searchable library — organized automatically.
+</details>
 
 ---
 
 ## How It Works
 
-### 1. Connect your vault (one time)
+### 1. Install (one time)
 
 ```bash
-python3 scripts/connect.py
+curl -fsSL https://raw.githubusercontent.com/Overusedhydra/reels-vault/main/install.sh | bash
 ```
 
-Points the pipeline at your Obsidian vault and drops in a `Reel Vault/` folder
-with topic notes, creator profiles, and a recipe book. The path is remembered,
-so you never type it again.
+This clones the repo, installs all dependencies, and asks where your Obsidian
+vault is. Takes about 2 minutes the first time.
 
-### 2. Extract reels
+### 2. Connect Claude Desktop
 
-```bash
-# Basic — files under a topic
-.venv/bin/python3 scripts/extract_reel.py "URL" --topic content-creation
-
-# Better transcription (slower)
-.venv/bin/python3 scripts/extract_reel.py "URL" --topic marketing --whisper-model small
-
-# Skip Shazam music ID (faster)
-.venv/bin/python3 scripts/extract_reel.py "URL" --topic ai --no-music
-
-# If Instagram blocks the download, authenticate via your browser
-.venv/bin/python3 scripts/extract_reel.py "URL" --cookies-from chrome
-
-# Raw JSON for custom pipelines
-.venv/bin/python3 scripts/extract_reel.py "URL" --json
-```
+Paste the MCP config into Claude Desktop's settings (see Quick Start above).
+Now Claude can use Reels Vault — paste a reel link and it saves everything.
 
 ### 3. Your vault organizes itself
 
