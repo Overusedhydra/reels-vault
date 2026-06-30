@@ -9,10 +9,6 @@
 </p>
 
 <p align="center">
-  <img src="assets/gifs/01-claude-install.gif" alt="Install Reels Vault via Claude" width="600">
-</p>
-
-<p align="center">
   <img src="assets/demo.gif" alt="Reels Vault demo — ask Claude to install, paste a reel link, and watch it get transcribed, auto-tagged, and filed into your Obsidian vault" width="800">
 </p>
 
