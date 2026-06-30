@@ -1,32 +1,36 @@
 # Reels Vault
 
-Open-source marketing intelligence pipeline. Extract transcripts, music, and insights from Instagram reels. Organize into an AI-ready knowledge base.
+Local marketing intelligence pipeline. Extract transcripts, music, and smart metadata from Instagram reels. Organize into an Obsidian knowledge base that grows as you save.
 
 ## What's Built
 
-- `scripts/extract_reel.py` — Core extraction (yt-dlp + Whisper transcription + Shazam music ID)
-- `scripts/connect.py` — One-time Obsidian vault connection (creates `Reel Vault/` folder)
+- `scripts/extract_reel.py` — Core extraction (yt-dlp + Whisper + Shazam + smart metadata detection)
+- `scripts/connect.py` — One-time Obsidian vault connection (creates minimal `Reel Vault/` folder)
 - `scripts/config.py` — Stores the connected vault path at `~/.config/reels-vault/config.json`
-- `vault-template/` — Obsidian knowledge base template (topics, creators, recipes, extracts)
+- `vault-template/` — Minimal vault foundation (grows as reels are saved, no pre-filled templates)
 - `mcp_server/server.py` — Real MCP server (FastMCP) for Claude/Cursor integration
 - `prompts/` — AI prompt templates for analysis
+- `skills/reels-vault/` — Claude skill for reel extraction
 
 ## Stack
 
-Python 3.10+, yt-dlp, Whisper, shazamio, ffmpeg, MCP SDK
+Python 3.10+ (auto-detected), yt-dlp, Whisper, shazamio, ffmpeg, uv (optional, for fast venv setup)
 
 ## Status
 
 - Reel extraction: ✅ Working end-to-end (yt-dlp + Whisper + Shazam)
-- Vault connection: ✅ `connect.py` wires pipeline to Obsidian vault
-- Vault template: ✅ Built with Hormozi example, Dataview paths fixed
-- MCP server: ✅ Real FastMCP server (extract_reel + search/list/read tools)
-- GitHub repo: ⏳ Ready to push
+- Smart metadata: ✅ Auto-detects niche, category, industry from content
+- Vault connection: ✅ Minimal foundation, no templates
+- Index building: ✅ Auto-grows as reels are saved (by niche, category, industry, creator)
+- Claude skill: ✅ Renamed to `reels-vault` (was `instagram-reel-extractor`)
+- MCP server: ✅ FastMCP server (extract_reel + search/list/read tools)
 
 ## Key Decisions
 
-- Reels are tagged with frontmatter (creator/topic/tags) and filed under `<topic>/` folders
-- yt-dlp handles IG auth via `--cookies-from-browser`; no brittle scraper fallback
+- Smart metadata (niche, category, industry) detected from transcript + caption via keyword matching — no API keys
+- Reels tagged with rich frontmatter (creator, topic, niche, category, industry, tags, source)
+- Vault grows organically — topic folders created on save, indexes auto-built
+- No pre-filled templates — clean foundation that gets smarter as you add reels
+- Setup auto-detects Python version, uses uv if available for faster venv creation
 - Whisper `base` model default (good balance of speed/accuracy)
-- Vault organized by topic (cross-creator), not by creator
-- No API keys required — runs 100% locally
+- 100% local — no cloud APIs required

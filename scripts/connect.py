@@ -2,15 +2,8 @@
 """
 Reels Vault — Connect your Obsidian vault (one-time setup).
 
-This is the "connect Obsidian" step. You run it ONCE. It asks where your
-Obsidian vault is, creates a `Reel Vault` folder inside it (with topic,
-creator, and extracts sub-folders from the template), and remembers the path.
-
-After this, you never think about paths again:
-
-    python3 scripts/extract_reel.py "<reel-url>" --topic content-creation
-
-…just lands the reel inside your Obsidian vault automatically.
+Creates a `Reel Vault/` folder inside your Obsidian vault and remembers
+the path. After this, reels auto-file there.
 
 Usage:
     python3 scripts/connect.py                          # interactive
@@ -19,88 +12,75 @@ Usage:
 
 import os
 import sys
-import shutil
 
-# Allow running both as `python3 scripts/connect.py` and from inside scripts/
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from config import load_config, save_config, config_path  # noqa: E402
 
 VAULT_FOLDER_NAME = "Reel Vault"
 
-# The template that ships with this repo lives one level up in vault-template/
-TEMPLATE_DIR = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)),
-    "..",
-    "vault-template",
-)
-
 
 def _create_reel_vault(vault_path: str) -> str:
-    """Create the `Reel Vault` folder inside the given vault, from template."""
+    """Create the `Reel Vault` folder inside the given vault."""
     reel_vault_path = os.path.join(vault_path, VAULT_FOLDER_NAME)
     os.makedirs(reel_vault_path, exist_ok=True)
 
-    # Copy the template structure in (creators/, topics/, recipes/, extracts/)
-    for item in os.listdir(TEMPLATE_DIR):
-        src = os.path.join(TEMPLATE_DIR, item)
-        dst = os.path.join(reel_vault_path, item)
-        if os.path.isdir(src):
-            if not os.path.exists(dst):
-                shutil.copytree(src, dst)
-        else:
-            if not os.path.exists(dst):
-                shutil.copy2(src, dst)
+    # Write a minimal Index.md if it doesn't exist
+    index_path = os.path.join(reel_vault_path, "Index.md")
+    if not os.path.exists(index_path):
+        with open(index_path, "w") as f:
+            f.write("""---
+tags: [vault-index]
+---
+
+# Reel Vault
+
+Your extracted reels live in topic folders. Each reel is auto-tagged with creator, niche, and category.
+
+## All Reels
+
+```dataview
+TABLE creator AS "Creator", topic AS "Topic", extracted AS "Date"
+FROM ""
+WHERE source
+SORT extracted DESC
+```
+""")
 
     return reel_vault_path
 
 
 def connect(vault_path: str = None) -> str:
-    """Connect a vault. Returns the path to the Reel Vault folder.
-
-    If vault_path is None, runs interactively (prompts the user).
-    """
-    # Interactive: ask the user where their vault is
+    """Connect a vault. Returns the path to the Reel Vault folder."""
     if vault_path is None:
         existing = load_config().get("vault_path", "")
         hint = f" [current: {existing}]" if existing else ""
-        print("🎬 Reels Vault — Connect your Obsidian vault")
-        print("-" * 48)
+        print("Reels Vault — Connect your Obsidian vault")
+        print("-" * 40)
         raw = input(f"Path to your Obsidian vault{hint}:\n> ").strip().strip('"').strip("'")
         if not raw:
-            print("No path entered. Exiting (nothing changed).")
+            print("No path entered. Exiting.")
             sys.exit(0)
         vault_path = os.path.expanduser(raw)
 
     vault_path = os.path.abspath(os.path.expanduser(vault_path))
 
-    # Validate the vault exists
     if not os.path.isdir(vault_path):
-        print(f"❌ That folder doesn't exist: {vault_path}")
+        print(f"Folder doesn't exist: {vault_path}")
         sys.exit(1)
 
-    # Friendly check: does this look like an Obsidian vault? (.obsidian folder)
     if not os.path.isdir(os.path.join(vault_path, ".obsidian")):
-        print(f"⚠️  Heads up: no `.obsidian` folder found at {vault_path}")
-        print("   That's okay if it's just a notes folder, but a real Obsidian")
-        print("   vault usually has a `.obsidian` folder inside it.")
+        print(f"No .obsidian folder at {vault_path} — may not be an Obsidian vault.")
 
     reel_vault_path = _create_reel_vault(vault_path)
 
-    # Remember the vault path *and* where this repo lives, so the optional
-    # Claude skill (skills/reels-vault/) can locate the venv + scripts without
-    # the user wiring up any paths by hand.
     install_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     cfg = load_config()
     cfg.update({"vault_path": reel_vault_path, "install_dir": install_dir})
     save_config(cfg)
 
     print()
-    print(f"✅ Connected!")
-    print(f"   Reel Vault folder: {reel_vault_path}")
-    print(f"   Config saved at:   {config_path()}")
-    print()
-    print("Now you can extract reels without thinking about paths:")
-    print('   python3 scripts/extract_reel.py "<reel-url>" --topic content-creation')
+    print(f"Connected: {reel_vault_path}")
+    print(f"Config:    {config_path()}")
 
     return reel_vault_path
 
