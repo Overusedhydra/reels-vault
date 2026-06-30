@@ -65,5 +65,5 @@ fi
 
 echo ""
 echo "Setup complete!"
-echo "  Connect vault:  $VENV_DIR/bin/python3 $SCRIPT_DIR/scripts/connect.py"
-echo "  Extract a reel: $VENV_DIR/bin/python3 $SCRIPT_DIR/scripts/extract_reel.py <url> --topic <topic>"
+echo "  Connect vault:  $VENV_DIR/bin/reels-vault-connect"
+echo "  Extract a reel: $VENV_DIR/bin/reels-vault <url> --topic <topic>"

@@ -36,7 +36,7 @@ cd "$DIR" && uv venv && uv pip install -r requirements.txt
 When the user shares a reel URL and wants it saved:
 
 ```bash
-"$DIR/.venv/bin/python3" "$DIR/scripts/extract_reel.py" "<reel-url>" --topic "<topic>"
+"$DIR/.venv/bin/reels-vault" "<reel-url>" --topic "<topic>"
 ```
 
 - Pick a short, lowercase, hyphenated `--topic` from the content (e.g.
