@@ -23,6 +23,26 @@ Instagram Reel → Download → Transcribe → Identify Music → File by Topic 
 
 ## Quick Start
 
+### Easiest — one line
+
+Paste this into your terminal. It downloads everything, installs it, and asks
+where your Obsidian vault is — all in one go:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Overusedhydra/reels-vault/main/install.sh | bash
+```
+
+Then save your first reel:
+
+```bash
+cd ~/reels-vault
+.venv/bin/reels-vault "https://www.instagram.com/reels/ABC123/" --topic content-creation
+```
+
+### Manual — step by step
+
+Prefer to see each step?
+
 ```bash
 # 1. Clone & set up
 git clone https://github.com/Overusedhydra/reels-vault.git
