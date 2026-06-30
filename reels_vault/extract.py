@@ -22,6 +22,8 @@ import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 
+from reels_vault.config import load_config
+
 
 # ---------------------------------------------------------------------------
 # Smart metadata detection — keyword-based, no API needed
@@ -577,7 +579,6 @@ def main():
         save_dir = args.save_dir
         if not save_dir:
             try:
-                from reels_vault.config import load_config
                 connected = load_config().get("vault_path", "")
                 if connected and os.path.isdir(connected):
                     save_dir = connected
