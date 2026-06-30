@@ -1,6 +1,10 @@
+<p align="center">
+  <img src="logo.svg" alt="Reels Vault" width="200">
+</p>
+
 # 🎬 Reels Vault
 
-**Paste a reel URL. Get a transcript. Ask your AI about it.
+**Paste a reel URL. Get a transcript. Ask your AI about it.**
 
 A local-first pipeline that extracts transcripts, music, and metadata from any
 Instagram reel, then organizes them into your Obsidian vault — tagged by
