@@ -7,7 +7,7 @@ Smart metadata (niche, category, industry) is auto-detected from content.
 Indexes grow in the vault as reels are saved.
 
 Usage:
-    python3 scripts/extract_reel.py <reel_url> --topic content-creation
+    reels-vault <reel_url> --topic content-creation
 """
 
 import sys
@@ -577,8 +577,7 @@ def main():
         save_dir = args.save_dir
         if not save_dir:
             try:
-                sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-                from config import load_config
+                from reels_vault.config import load_config
                 connected = load_config().get("vault_path", "")
                 if connected and os.path.isdir(connected):
                     save_dir = connected
@@ -593,7 +592,7 @@ def main():
             where = f" under topic '{args.topic}'" if args.topic else ""
             print(f"\nSaved to vault{where}:\n  {save_path}", file=sys.stderr)
         elif not args.json:
-            print("\n(Tip: run scripts/connect.py once to auto-file reels into your "
+            print("\n(Tip: run reels-vault-connect once to auto-file reels into your "
                   "Obsidian vault.)", file=sys.stderr)
 
     finally:

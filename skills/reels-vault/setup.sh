@@ -49,5 +49,5 @@ echo "ffmpeg: OK"
 
 echo ""
 echo "Setup complete!"
-echo "  Connect vault:  $PYTHON scripts/connect.py"
-echo "  Extract a reel: $PYTHON scripts/extract_reel.py <url> --topic <topic>"
+echo "  Connect vault:  reels-vault-connect"
+echo "  Extract a reel: reels-vault <url> --topic <topic>"

@@ -4,13 +4,16 @@ Local marketing intelligence pipeline. Extract transcripts, music, and smart met
 
 ## What's Built
 
-- `scripts/extract_reel.py` — Core extraction (yt-dlp + Whisper + Shazam + smart metadata detection)
-- `scripts/connect.py` — One-time Obsidian vault connection (creates minimal `Reel Vault/` folder)
-- `scripts/config.py` — Stores the connected vault path at `~/.config/reels-vault/config.json`
+- `reels_vault/extract.py` — Core extraction (yt-dlp + Whisper + Shazam + smart metadata detection). Entry point: `reels-vault`
+- `reels_vault/connect.py` — One-time Obsidian vault connection (creates minimal `Reel Vault/` folder). Entry point: `reels-vault-connect`
+- `reels_vault/config.py` — Stores the connected vault path at `~/.config/reels-vault/config.json`
+- `reels_vault/server.py` — MCP server (FastMCP) for Claude/Cursor integration. Entry point: `reels-vault-mcp`
+- `reels_vault/cli.py` — Thin console entry that calls `reels_vault.extract:main`
 - `vault-template/` — Minimal vault foundation (grows as reels are saved, no pre-filled templates)
-- `mcp_server/server.py` — Real MCP server (FastMCP) for Claude/Cursor integration
 - `prompts/` — AI prompt templates for analysis
-- `skills/reels-vault/` — Claude skill for reel extraction
+- `skills/reels-vault/` — Claude skill for reel extraction (calls the installed `reels-vault` CLI)
+
+All logic lives inside the `reels_vault/` package so `pip install .` / `pipx install .` ship a working CLI. There is one source of truth — no duplicated scripts.
 
 ## Stack
 

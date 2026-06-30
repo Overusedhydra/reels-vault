@@ -54,7 +54,7 @@ Now just talk to Claude — no JSON to edit, no server to configure:
 > *"Save this reel: https://www.instagram.com/reels/ABC123/"*
 > *"What do creators say about hooks?"*
 
-The skill finds your install automatically (via the path `connect.py` records)
+The skill finds your install automatically (via the path `reels-vault-connect` records)
 and runs the same CLI under the hood. For other MCP clients (Claude Desktop,
 Cursor, Continue), use the MCP server setup below instead.
 
@@ -72,8 +72,7 @@ curl -fsSL https://raw.githubusercontent.com/Overusedhydra/reels-vault/main/inst
 {
   "mcpServers": {
     "reels-vault": {
-      "command": "/Users/you/reels-vault/.venv/bin/python3",
-      "args": ["/Users/you/reels-vault/mcp_server/server.py"]
+      "command": "/Users/you/reels-vault/.venv/bin/reels-vault-mcp"
     }
   }
 }
@@ -187,15 +186,14 @@ saved (*"What do creators say about hooks?"*).
 1. Open Claude Desktop → **Settings → Developer → Edit Config**. (This opens a
    file called `claude_desktop_config.json`.)
 2. Paste in the block below.
-3. Replace the **3 paths** with your real ones (see the tip under the block).
+3. Replace the **2 paths** with your real ones (see the tip under the block).
 4. Save the file and fully quit + reopen Claude Desktop.
 
 ```jsonc
 {
   "mcpServers": {
     "reels-vault": {
-      "command": "/path/to/reels-vault/.venv/bin/python3",
-      "args": ["/path/to/reels-vault/mcp_server/server.py"],
+      "command": "/path/to/reels-vault/.venv/bin/reels-vault-mcp",
       "env": { "REELS_VAULT_PATH": "/path/to/your-vault/Reel Vault" }
     }
   }
@@ -203,9 +201,9 @@ saved (*"What do creators say about hooks?"*).
 ```
 
 > **Tip — getting the paths right:** in the `reels-vault` folder, run `pwd` in
-> your terminal to print its full path. Swap that in for `/path/to/reels-vault`
-> (both times). For the last line, use the `Reel Vault` folder that
-> `connect.py` created inside your Obsidian vault.
+> your terminal to print its full path. Swap that in for `/path/to/reels-vault`.
+> For `REELS_VAULT_PATH`, use the `Reel Vault` folder that `reels-vault-connect`
+> created inside your Obsidian vault.
 
 Once it's connected, Claude can `extract_reel` (save a new reel), `search_reels`,
 `list_topics`, `list_creators`, `read_note`, and `vault_status` — all by itself.

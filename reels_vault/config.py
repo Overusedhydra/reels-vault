@@ -5,7 +5,7 @@ Reels Vault — config storage.
 Stores a tiny JSON config at ~/.config/reels-vault/config.json so that once
 you've "connected" your Obsidian vault, you never have to type its path again:
 
-    python3 scripts/extract_reel.py "<reel-url>"
+    reels-vault "<reel-url>"
 
 just drops the reel into your vault under the right topic folder.
 """

@@ -11,27 +11,22 @@ Usage — add to your client's MCP config:
     {
       "mcpServers": {
         "reels-vault": {
-          "command": "python3",
-          "args": ["/path/to/reels-vault/mcp_server/server.py"],
+          "command": "/path/to/reels-vault/.venv/bin/reels-vault-mcp",
           "env": { "REELS_VAULT_PATH": "/path/to/your-vault/Reel Vault" }
         }
       }
     }
 
-REELS_VAULT_PATH defaults to the vault you connected via `scripts/connect.py`.
-Run it standalone (`python3 mcp_server/server.py`) for a quick smoke test.
+REELS_VAULT_PATH defaults to the vault you connected via `reels-vault-connect`.
+Run it standalone (`reels-vault-mcp --check`) for a quick smoke test.
 """
 
 import os
 import sys
 from pathlib import Path
 
-# Allow importing the shared config from scripts/
-SCRIPTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "scripts")
-sys.path.insert(0, SCRIPTS_DIR)
-
 from mcp.server.fastmcp import FastMCP
-from config import load_config
+from reels_vault.config import load_config
 
 
 def _vault_path() -> Path:
@@ -152,7 +147,7 @@ def vault_status() -> str:
     """Show where the vault is and a quick inventory (reel count, topics)."""
     if not VAULT.exists():
         return (f"Vault not found at: {VAULT}\n"
-                f"Set REELS_VAULT_PATH or run scripts/connect.py.")
+                f"Set REELS_VAULT_PATH or run reels-vault-connect.")
     reels = sum(1 for _ in _iter_notes("extracts"))
     return (f"Vault: {VAULT}\n"
             f"Reels: {reels}\n"
@@ -179,14 +174,14 @@ def extract_reel(url: str, topic: str = "", whisper_model: str = "base",
     """
     import tempfile
     import shutil
-    from extract_reel import (
+    from reels_vault.extract import (
         extract_metadata, extract_audio, transcribe,
         identify_music, format_output, save_extraction,
     )
 
     if not VAULT.exists():
         return (f"No vault connected (looked at {VAULT}).\n"
-                "Run scripts/connect.py once, or set REELS_VAULT_PATH.")
+                "Run reels-vault-connect once, or set REELS_VAULT_PATH.")
 
     work_dir = tempfile.mkdtemp(prefix="reel_")
     try:
@@ -227,7 +222,7 @@ def extract_reel(url: str, topic: str = "", whisper_model: str = "base",
         shutil.rmtree(work_dir, ignore_errors=True)
 
 
-if __name__ == "__main__":
+def run():
     # `--check` runs a standalone smoke test and exits. Everything goes to
     # stderr so it can never corrupt the stdio JSON-RPC stream.
     if "--check" in sys.argv:
@@ -236,7 +231,7 @@ if __name__ == "__main__":
         if VAULT.exists():
             print(vault_status(), file=sys.stderr)
         else:
-            print("(no vault connected — run scripts/connect.py or set "
+            print("(no vault connected — run reels-vault-connect or set "
                   "REELS_VAULT_PATH)", file=sys.stderr)
         sys.exit(0)
 
@@ -244,3 +239,7 @@ if __name__ == "__main__":
     # A short banner on stderr is fine — clients read JSON-RPC from stdout only.
     print(f"Reels Vault MCP Server — vault: {VAULT}", file=sys.stderr)
     mcp.run()
+
+
+if __name__ == "__main__":
+    run()

@@ -14,10 +14,13 @@ dependencies = [
     "openai-whisper>=20240927",
     "shazamio>=0.7.0",
     "playwright>=1.60.0",
+    "mcp>=1.0",
 ]
 
 [project.scripts]
 reels-vault = "reels_vault.cli:main"
+reels-vault-connect = "reels_vault.connect:main"
+reels-vault-mcp = "reels_vault.server:run"
 
 [tool.setuptools.packages.find]
 include = ["reels_vault*"]

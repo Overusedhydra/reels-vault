@@ -6,15 +6,14 @@ Creates a `Reel Vault/` folder inside your Obsidian vault and remembers
 the path. After this, reels auto-file there.
 
 Usage:
-    python3 scripts/connect.py                          # interactive
-    python3 scripts/connect.py /path/to/my-vault        # non-interactive
+    reels-vault-connect                          # interactive
+    reels-vault-connect /path/to/my-vault        # non-interactive
 """
 
 import os
 import sys
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from config import load_config, save_config, config_path  # noqa: E402
+from reels_vault.config import load_config, save_config, config_path
 
 VAULT_FOLDER_NAME = "Reel Vault"
 
@@ -85,6 +84,10 @@ def connect(vault_path: str = None) -> str:
     return reel_vault_path
 
 
-if __name__ == "__main__":
+def main():
     vault_arg = sys.argv[1] if len(sys.argv) > 1 else None
     connect(vault_arg)
+
+
+if __name__ == "__main__":
+    main()

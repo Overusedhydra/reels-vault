@@ -70,14 +70,14 @@ if [ -r /dev/tty ]; then
     printf "   Path to your Obsidian vault (or press Enter to skip): "
     read -r VAULT_PATH < /dev/tty || VAULT_PATH=""
     if [ -n "$VAULT_PATH" ]; then
-        .venv/bin/python3 scripts/connect.py "$VAULT_PATH"
+        .venv/bin/reels-vault-connect "$VAULT_PATH"
     else
         echo "   ⏭️  Skipped. Connect later with:"
-        echo "        cd \"$TARGET_DIR\" && .venv/bin/python3 scripts/connect.py"
+        echo "        cd \"$TARGET_DIR\" && .venv/bin/reels-vault-connect"
     fi
 else
     echo "⏭️  Can't ask for your vault path here. Connect it later with:"
-    echo "     cd \"$TARGET_DIR\" && .venv/bin/python3 scripts/connect.py"
+    echo "     cd \"$TARGET_DIR\" && .venv/bin/reels-vault-connect"
 fi
 
 # ---------------------------------------------------------------------------

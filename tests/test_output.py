@@ -1,11 +1,6 @@
 """Smoke tests for Reels Vault — tests the parts we own (formatting, parsing)."""
 
-import sys
-import os
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-
-from scripts.extract_reel import format_output, _slugify
+from reels_vault.extract import format_output, _slugify
 from datetime import datetime, timezone
 
 
