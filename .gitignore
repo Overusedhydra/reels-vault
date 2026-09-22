@@ -39,3 +39,7 @@ temp/
 *.egg-info/
 build/
 dist/
+
+# Local tooling
+.agents/
+skills-lock.json

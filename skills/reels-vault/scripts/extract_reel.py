@@ -23,74 +23,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 
-# ---------------------------------------------------------------------------
-# Smart metadata detection — keyword-based, no API needed
-# ---------------------------------------------------------------------------
-
-NICHE_KEYWORDS = {
-    "content-creation": ["content", "creator", "reels", "tiktok", "youtube", "instagram", "video", "editing", "camera", "filming"],
-    "marketing": ["marketing", "ads", "funnel", "conversion", "brand", "audience", "growth", "traffic", "leads"],
-    "copywriting": ["copy", "headline", "hook", "script", "storytelling", "persuasion", "words", "writing"],
-    "e-commerce": ["shopify", "product", "store", "dropshipping", "ecommerce", "sales", "checkout", "cart"],
-    "finance": ["investing", "stocks", "crypto", "money", "wealth", "budget", "savings", "income", "passive"],
-    "fitness": ["workout", "gym", "muscle", "diet", "nutrition", "training", "protein", "exercise", "health"],
-    "ai-tools": ["ai", "chatgpt", "automation", "workflow", "tool", "software", "productivity", "prompt"],
-    "personal-brand": ["personal brand", "authority", "influence", "following", "audience", "niche", "monetize"],
-    "mindset": ["mindset", "motivation", "discipline", "habits", "goals", "success", "failure", "growth mindset"],
-    "sales": ["selling", "close", "objection", "pitch", "deal", "revenue", "client", "prospect", "outbound"],
-}
-
-CATEGORY_KEYWORDS = {
-    "tutorial": ["how to", "step by step", "tutorial", "guide", "learn", "teach", "explain", "walkthrough"],
-    "tip": ["tip", "trick", "hack", "secret", "quick", "easy", "simple", "fast"],
-    "story": ["story", "journey", "started", "began", "experience", "lesson", "mistake", "failed"],
-    "rant": ["everyone", "nobody", "stop", "why do", "truth is", "real talk", "unpopular opinion"],
-    "listicle": ["top", "best", "worst", "things", "ways", "reasons", "things to", "rules"],
-    "case-study": ["case study", "result", "before and after", "exactly how", "generated", "made"],
-}
-
-INDUSTRY_KEYWORDS = {
-    "saas": ["saas", "software", "subscription", "mrr", "arr", "churn", "trial", "freemium"],
-    "agency": ["agency", "client", "retainer", "service", "consulting", "freelance"],
-    "ecommerce": ["shopify", "ecommerce", "e-commerce", "dropshipping", "product", "fulfillment"],
-    "creator-economy": ["creator", "influencer", "sponsor", "brand deal", "monetize", "audience"],
-    "health-wellness": ["health", "wellness", "supplement", "fitness", "nutrition", "mental health"],
-    "real-estate": ["real estate", "property", "rental", "mortgage", "flip", "housing"],
-    "education": ["course", "teach", "learn", "student", "education", "coaching", "mentor"],
-    "crypto-web3": ["crypto", "web3", "nft", "blockchain", "defi", "bitcoin", "ethereum"],
-}
-
-
-def detect_metadata(text: str) -> dict:
-    """Analyze text and detect niche, category, industry from keywords."""
-    text_lower = text.lower()
-    scores = {}
-
-    # Detect niche
-    for niche, keywords in NICHE_KEYWORDS.items():
-        score = sum(1 for kw in keywords if kw in text_lower)
-        if score > 0:
-            scores[niche] = score
-    niche = max(scores, key=scores.get) if scores else "general"
-
-    # Detect category
-    scores = {}
-    for cat, keywords in CATEGORY_KEYWORDS.items():
-        score = sum(1 for kw in keywords if kw in text_lower)
-        if score > 0:
-            scores[cat] = score
-    category = max(scores, key=scores.get) if scores else "general"
-
-    # Detect industry
-    scores = {}
-    for ind, keywords in INDUSTRY_KEYWORDS.items():
-        score = sum(1 for kw in keywords if kw in text_lower)
-        if score > 0:
-            scores[ind] = score
-    industry = max(scores, key=scores.get) if scores else "general"
-
-    return {"niche": niche, "category": category, "industry": industry}
-
 
 # ---------------------------------------------------------------------------
 # Tool resolution
@@ -251,6 +183,49 @@ def extract_metadata(url: str, output_dir: str, cookies_from: str = None, sessio
     return video_path, metadata
 
 
+
+# ---------------------------------------------------------------------------
+# Frame extraction — for visual analysis by vision-capable models
+# ---------------------------------------------------------------------------
+
+def extract_frames(video_path: str, output_dir: str, interval: float = 1.0,
+                   max_frames: int = 60) -> list:
+    """Extract key frames from video at regular intervals using ffmpeg."""
+    frames_dir = os.path.join(output_dir, "frames")
+    os.makedirs(frames_dir, exist_ok=True)
+    duration = _get_video_duration(video_path)
+    if duration <= 0:
+        return []
+    count = min(max_frames, max(1, int(duration / interval)))
+    actual_interval = duration / count if count > 1 else 0
+    frame_paths = []
+    for i in range(count):
+        ts = i * actual_interval
+        ts_str = f"{int(ts // 3600):02d}-{int((ts % 3600) // 60):02d}-{ts % 60:06.3f}"
+        frame_path = os.path.join(frames_dir, f"frame-{ts_str}.jpg")
+        cmd = [_resolve_tool("ffmpeg"), "-y", "-ss", str(ts),
+               "-i", video_path, "-vframes", "1", "-q:v", "3", frame_path]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode == 0 and os.path.exists(frame_path):
+            frame_paths.append({"path": frame_path, "timestamp": ts})
+        else:
+            cmd2 = [_resolve_tool("ffmpeg"), "-y", "-ss", str(ts),
+                    "-i", video_path, "-vframes", "1", "-q:v", "3",
+                    "-vf", "scale=iw:ih", frame_path]
+            subprocess.run(cmd2, capture_output=True)
+    return frame_paths
+
+
+def _get_video_duration(video_path: str) -> float:
+    """Return video duration in seconds via ffprobe, or -1 on failure."""
+    cmd = [_resolve_tool("ffprobe"), "-v", "error", "-show_entries",
+           "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", video_path]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    try:
+        return float(result.stdout.strip())
+    except (ValueError, TypeError):
+        return -1.0
+
 # ---------------------------------------------------------------------------
 # Audio / transcription / music
 # ---------------------------------------------------------------------------
@@ -321,7 +296,8 @@ def _slugify(value: str) -> str:
 
 
 def format_output(metadata: dict, transcript: dict, original_url: str = "",
-                 music: dict = None, topic: str = "", smart_meta: dict = None) -> str:
+                 music: dict = None, topic: str = "", smart_meta: dict = None,
+                 frames: list = None, frames_vault_rel_dir: str = "") -> str:
     """Format extraction results as a tagged markdown note."""
     creator = metadata.get("author", "Unknown")
     handle = metadata.get("author_handle") or metadata.get("author_id", "")
@@ -330,9 +306,9 @@ def format_output(metadata: dict, transcript: dict, original_url: str = "",
     url_display = original_url or metadata.get("url", "")
 
     # Smart metadata
-    niche = smart_meta.get("niche", "general") if smart_meta else "general"
-    category = smart_meta.get("category", "general") if smart_meta else "general"
-    industry = smart_meta.get("industry", "general") if smart_meta else "general"
+    niche = "general"
+    category = "general"
+    industry = "general"
 
     # Frontmatter
     fm = ["---"]
@@ -371,7 +347,26 @@ def format_output(metadata: dict, transcript: dict, original_url: str = "",
     for label, key in (("Views", "view_count"), ("Likes", "like_count"), ("Comments", "comment_count")):
         if metadata.get(key) is not None:
             lines.append(f"- **{label}:** {metadata[key]:,}")
-    lines.append("")
+
+    # Visual Frames — for vision model analysis
+    if frames and frames_vault_rel_dir:
+        lines += ["## Visual Frames", ""]
+        lines.append(f"> *Frames stored in `{frames_vault_rel_dir}/` — load for visual analysis*")
+        lines.append("")
+        for i, f in enumerate(frames):
+            ts = f.get("timestamp", 0)
+            mins, secs = divmod(int(ts), 60)
+            fname = os.path.basename(f["path"])
+            lines.append(f"- [{mins:02d}:{secs:02d}] ![[{frames_vault_rel_dir}/{fname}]]")
+        lines.append("")
+
+        lines += ["## Key Frame", ""]
+        lines.append("After viewing the frames above, identify and mark **one frame** where:")
+        lines.append("- Any on-screen text/prompt/code is **fully visible** (no face or hand blocking it)")
+        lines.append("- The creator has moved aside to reveal content")
+        lines.append("")
+        lines.append("Format: `KEY: [mm:ss] — <what is visible on screen>`")
+        lines.append("")
 
     # Music
     if music:
@@ -476,26 +471,47 @@ def _update_indexes(vault_path: str, metadata: dict, smart_meta: dict, topic: st
 # Save
 # ---------------------------------------------------------------------------
 
-def save_extraction(output: str, metadata: dict, save_dir: str, topic: str = "") -> str:
-    """Save the reel into <save-dir>/<topic>/ as a tagged markdown note."""
-    target_dir = os.path.join(save_dir, _slugify(topic)) if topic else save_dir
-    os.makedirs(target_dir, exist_ok=True)
-
+def _compute_basename(metadata: dict, save_dir: str, topic: str = "") -> tuple:
+    """Return (base_name, filepath) for a reel note, handling counter to avoid collisions."""
+    target_dir = os.path.join(save_dir, "Reels", _slugify(topic)) if topic else os.path.join(save_dir, "Reels", "general")
     handle = _slugify(metadata.get("author_handle") or metadata.get("author", "unknown"))
     upload_date = metadata.get("upload_date", "")
     if len(upload_date) == 8:
         upload_date = f"{upload_date[:4]}-{upload_date[4:6]}-{upload_date[6:8]}"
     if not upload_date:
         upload_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-
-    filepath = os.path.join(target_dir, f"{handle}-reel-{upload_date}.md")
+    base = f"{handle}-reel-{upload_date}"
+    filepath = os.path.join(target_dir, f"{base}.md")
     counter = 2
     while os.path.exists(filepath):
-        filepath = os.path.join(target_dir, f"{handle}-reel-{upload_date}-{counter}.md")
+        base = f"{handle}-reel-{upload_date}-{counter}"
+        filepath = os.path.join(target_dir, f"{base}.md")
         counter += 1
+    return base, filepath
+
+
+def save_extraction(output: str, metadata: dict, save_dir: str, topic: str = "",
+                    frames: list = None, base_name: str = None) -> str:
+    """Save the reel into <save-dir>/Reels/<topic>/ as a tagged markdown note.
+    If frames are provided, they are copied into a frames/ subfolder alongside the note."""
+    target_dir = os.path.join(save_dir, "Reels", _slugify(topic)) if topic else os.path.join(save_dir, "Reels", "general")
+    os.makedirs(target_dir, exist_ok=True)
+
+    if base_name:
+        filepath = os.path.join(target_dir, f"{base_name}.md")
+    else:
+        base_name, filepath = _compute_basename(metadata, save_dir, topic)
 
     with open(filepath, "w") as f:
         f.write(output)
+
+    if frames:
+        frames_target = os.path.join(target_dir, "frames", base_name)
+        os.makedirs(frames_target, exist_ok=True)
+        for frm in frames:
+            dest = os.path.join(frames_target, os.path.basename(frm["path"]))
+            shutil.copy2(frm["path"], dest)
+
     return filepath
 
 
@@ -524,6 +540,10 @@ def main():
                         help="Browser to read cookies from (e.g. chrome, firefox)")
     parser.add_argument("--session-file", default=None,
                         help="Path to Instagram session cookies JSON")
+    parser.add_argument("--no-frames", action="store_true",
+                        help="Skip frame extraction for visual analysis")
+    parser.add_argument("--frame-interval", type=float, default=1.0,
+                        help="Seconds between frame captures (default: 1.0)")
     args = parser.parse_args()
 
     work_dir = args.output_dir or tempfile.mkdtemp(prefix="reel_")
@@ -551,29 +571,22 @@ def main():
             except Exception as e:
                 print(f"  Shazam failed: {e}", file=sys.stderr)
 
-        # Smart metadata detection from transcript + caption
-        analyze_text = " ".join([
-            metadata.get("caption", ""),
-            metadata.get("title", ""),
-            transcript.get("text", ""),
-            " ".join(metadata.get("hashtags", [])),
-        ])
-        smart_meta = detect_metadata(analyze_text)
-        print(f"  Detected: niche={smart_meta['niche']}, category={smart_meta['category']}, industry={smart_meta['industry']}", file=sys.stderr)
+        smart_meta = {"niche": "general", "category": "general", "industry": "general"}
 
-        if args.json:
-            output = json.dumps(
-                {"metadata": metadata, "transcript": transcript, "music": music, "smart_meta": smart_meta},
-                indent=2, default=str,
-            )
-        else:
-            output = format_output(metadata, transcript,
-                                   original_url=args.url, music=music or None,
-                                   topic=args.topic or "", smart_meta=smart_meta)
 
-        print(output)
+        # Extract visual frames (unless --no-frames)
+        frames = []
+        if not args.no_frames:
+            print("Extracting visual frames...", file=sys.stderr)
+            try:
+                frames = extract_frames(video_path, work_dir, interval=args.frame_interval)
+                print(f"  Captured {len(frames)} frames", file=sys.stderr)
+            except Exception as e:
+                print(f"  Frame extraction failed: {e}", file=sys.stderr)
 
-        # Determine save location
+        # Compute frames vault path and note base name
+        note_base_name = None
+        frames_vault_rel_dir = ""
         save_dir = args.save_dir
         if not save_dir:
             try:
@@ -584,10 +597,29 @@ def main():
                     save_dir = connected
             except Exception:
                 pass
+        if save_dir:
+            note_base_name, _ = _compute_basename(metadata, os.path.expanduser(save_dir), args.topic or "")
+            if frames:
+                topic_dir = _slugify(args.topic) if args.topic else ""
+                frames_vault_rel_dir = f"Reels/{topic_dir}/frames/{note_base_name}" if topic_dir else f"Reels/general/frames/{note_base_name}"
+
+        if args.json:
+            output = json.dumps(
+                {"metadata": metadata, "transcript": transcript, "music": music, "smart_meta": smart_meta},
+                indent=2, default=str,
+            )
+        else:
+            output = format_output(metadata, transcript,
+                                   original_url=args.url, music=music or None,
+                                   topic=args.topic or "", smart_meta=smart_meta,
+                                   frames=frames, frames_vault_rel_dir=frames_vault_rel_dir)
+
+        print(output)
 
         if save_dir:
             save_path = save_extraction(output, metadata,
-                                        os.path.expanduser(save_dir), topic=args.topic or "")
+                                        os.path.expanduser(save_dir), topic=args.topic or "",
+                                        frames=frames, base_name=note_base_name)
             # Build indexes
             _update_indexes(os.path.expanduser(save_dir), metadata, smart_meta, args.topic or "")
             where = f" under topic '{args.topic}'" if args.topic else ""
