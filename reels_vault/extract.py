@@ -3,8 +3,8 @@
 Reels Vault — Extract transcript and metadata from an Instagram Reel.
 
 Pipeline: yt-dlp (download) → ffmpeg (audio) → Whisper (transcript) → Shazam (music).
-Smart metadata (niche, category, industry) is auto-detected from content.
-Indexes grow in the vault as reels are saved.
+Classification is intentionally left to the calling AI agent.
+Notes are saved to Obsidian, Notion, or both.
 
 Usage:
     reels-vault <reel_url> --topic content-creation
@@ -20,78 +20,17 @@ import tempfile
 import asyncio
 import shutil
 from datetime import datetime, timezone
-from pathlib import Path
 
-from reels_vault.config import load_config
-
-
-# ---------------------------------------------------------------------------
-# Smart metadata detection — keyword-based, no API needed
-# ---------------------------------------------------------------------------
-
-NICHE_KEYWORDS = {
-    "content-creation": ["content", "creator", "reels", "tiktok", "youtube", "instagram", "video", "editing", "camera", "filming"],
-    "marketing": ["marketing", "ads", "funnel", "conversion", "brand", "audience", "growth", "traffic", "leads"],
-    "copywriting": ["copy", "headline", "hook", "script", "storytelling", "persuasion", "words", "writing"],
-    "e-commerce": ["shopify", "product", "store", "dropshipping", "ecommerce", "sales", "checkout", "cart"],
-    "finance": ["investing", "stocks", "crypto", "money", "wealth", "budget", "savings", "income", "passive"],
-    "fitness": ["workout", "gym", "muscle", "diet", "nutrition", "training", "protein", "exercise", "health"],
-    "ai-tools": ["ai", "chatgpt", "automation", "workflow", "tool", "software", "productivity", "prompt"],
-    "personal-brand": ["personal brand", "authority", "influence", "following", "audience", "niche", "monetize"],
-    "mindset": ["mindset", "motivation", "discipline", "habits", "goals", "success", "failure", "growth mindset"],
-    "sales": ["selling", "close", "objection", "pitch", "deal", "revenue", "client", "prospect", "outbound"],
-}
-
-CATEGORY_KEYWORDS = {
-    "tutorial": ["how to", "step by step", "tutorial", "guide", "learn", "teach", "explain", "walkthrough"],
-    "tip": ["tip", "trick", "hack", "secret", "quick", "easy", "simple", "fast"],
-    "story": ["story", "journey", "started", "began", "experience", "lesson", "mistake", "failed"],
-    "rant": ["everyone", "nobody", "stop", "why do", "truth is", "real talk", "unpopular opinion"],
-    "listicle": ["top", "best", "worst", "things", "ways", "reasons", "things to", "rules"],
-    "case-study": ["case study", "result", "before and after", "exactly how", "generated", "made"],
-}
-
-INDUSTRY_KEYWORDS = {
-    "saas": ["saas", "software", "subscription", "mrr", "arr", "churn", "trial", "freemium"],
-    "agency": ["agency", "client", "retainer", "service", "consulting", "freelance"],
-    "ecommerce": ["shopify", "ecommerce", "e-commerce", "dropshipping", "product", "fulfillment"],
-    "creator-economy": ["creator", "influencer", "sponsor", "brand deal", "monetize", "audience"],
-    "health-wellness": ["health", "wellness", "supplement", "fitness", "nutrition", "mental health"],
-    "real-estate": ["real estate", "property", "rental", "mortgage", "flip", "housing"],
-    "education": ["course", "teach", "learn", "student", "education", "coaching", "mentor"],
-    "crypto-web3": ["crypto", "web3", "nft", "blockchain", "defi", "bitcoin", "ethereum"],
-}
-
-
-def detect_metadata(text: str) -> dict:
-    """Analyze text and detect niche, category, industry from keywords."""
-    text_lower = text.lower()
-    scores = {}
-
-    # Detect niche
-    for niche, keywords in NICHE_KEYWORDS.items():
-        score = sum(1 for kw in keywords if kw in text_lower)
-        if score > 0:
-            scores[niche] = score
-    niche = max(scores, key=scores.get) if scores else "general"
-
-    # Detect category
-    scores = {}
-    for cat, keywords in CATEGORY_KEYWORDS.items():
-        score = sum(1 for kw in keywords if kw in text_lower)
-        if score > 0:
-            scores[cat] = score
-    category = max(scores, key=scores.get) if scores else "general"
-
-    # Detect industry
-    scores = {}
-    for ind, keywords in INDUSTRY_KEYWORDS.items():
-        score = sum(1 for kw in keywords if kw in text_lower)
-        if score > 0:
-            scores[ind] = score
-    industry = max(scores, key=scores.get) if scores else "general"
-
-    return {"niche": niche, "category": category, "industry": industry}
+from .config import load_config
+from .notes import (
+    CLASSIFICATION_PENDING,
+    UNCLASSIFIED,
+    dump_frontmatter,
+    slugify,
+    source_id,
+    split_frontmatter,
+)
+from .storage import StorageManager
 
 
 # ---------------------------------------------------------------------------
@@ -110,70 +49,113 @@ def _resolve_tool(name: str) -> str:
 # Download
 # ---------------------------------------------------------------------------
 
-def _download_via_playwright(url: str, output_dir: str, session_file: str = None) -> tuple:
-    """Fallback downloader using Playwright."""
-    from playwright.sync_api import sync_playwright
+_IG_UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
 
+
+def _parse_count(raw: str):
+    """Parse '709', '8,516' or '44K' into an int."""
+    s = (raw or "").strip().replace(",", "").replace(" ", "")
+    mult = 1
+    if s and s[-1].upper() in "KMB":
+        mult = {"K": 1_000, "M": 1_000_000, "B": 1_000_000_000}[s[-1].upper()]
+        s = s[:-1]
+    try:
+        return int(float(s) * mult)
+    except ValueError:
+        return None
+
+
+def _parse_instagram_meta(page_meta: dict) -> dict:
+    """Build a yt-dlp-shaped metadata dict from Instagram Open Graph tags."""
+    title = page_meta.get("title", "") or ""
+    desc = page_meta.get("description", "") or ""
+
+    author = title.split(" on Instagram")[0].strip() or "Unknown"
+    caption = desc
+    handle = ""
+    upload_date = ""
+    like_count = None
+    comment_count = None
+
+    # "706 likes, 147 comments - angus.sewell on September 21, 2026: "caption""
+    m = re.match(
+        r'^(?P<likes>[\d.,]+\s*[KMB]?)\s+likes?,\s*(?P<comments>[\d.,]+\s*[KMB]?)\s+comments?\s*-\s*'
+        r'(?P<handle>@?[\w.]+)\s+on\s+(?P<date>[A-Za-z]+\s+\d{1,2},\s+\d{4}):\s*'
+        r'"?(?P<caption>.*?)"?\s*$',
+        desc, re.S,
+    )
+    if m:
+        like_count = _parse_count(m.group("likes"))
+        comment_count = _parse_count(m.group("comments"))
+        handle = m.group("handle").lstrip("@")
+        caption = m.group("caption").strip()
+        try:
+            upload_date = datetime.strptime(m.group("date").replace("  ", " "),
+                                             "%B %d, %Y").strftime("%Y%m%d")
+        except ValueError:
+            upload_date = ""
+
+    hashtags = re.findall(r"#(\w+)", caption or desc)
+
+    return {
+        "author": author,
+        "author_handle": handle,
+        "title": title,
+        "caption": caption or desc,
+        "like_count": like_count,
+        "comment_count": comment_count,
+        "upload_date": upload_date,
+        "url": page_meta.get("url", ""),
+        "hashtags": hashtags,
+        "thumbnail": page_meta.get("image", ""),
+    }
+
+
+def _scrape_reel(context, url: str, output_dir: str) -> tuple:
+    """Download one reel into ``output_dir`` using an existing browser context."""
     video_path = os.path.join(output_dir, "reel.mp4")
-    metadata = {}
-
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
-        context = browser.new_context(
-            user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-        )
-
-        if session_file and os.path.exists(session_file):
-            try:
-                with open(session_file) as f:
-                    cookies = json.load(f)
-                if cookies:
-                    context.add_cookies(cookies)
-            except Exception:
-                pass
-
-        page = context.new_page()
+    page = context.new_page()
+    try:
         try:
             page.goto(url, wait_until="networkidle", timeout=30000)
         except Exception:
             pass
         page.wait_for_timeout(5000)
 
-        video_url = page.evaluate("""
+        video_url = page.evaluate(r"""
             () => {
                 const html = document.documentElement.innerHTML;
-                const vidMatch = html.match(/"video_versions":\\s*(\\[{.*?}\\])/);
+                const vidMatch = html.match(/"video_versions":\s*(\[{.*?}\])/);
                 if (vidMatch) {
                     try {
                         const versions = JSON.parse(vidMatch[1]);
                         for (const v of versions) {
                             if (v && v.url && typeof v.url === 'string') {
-                                return v.url.replace(/\\\\u0026/g, '&').replace(/\\u0026/g, '&');
+                                return v.url.replace(/\\u0026/g, '&').replace(/\u0026/g, '&');
                             }
                         }
                     } catch(e) {}
                 }
-                const m2 = html.match(/"video_url":\\s*"(https:[^"]+)"/);
-                if (m2) return m2[1].replace(/\\\\u0026/g, '&').replace(/\\u0026/g, '&');
+                const m2 = html.match(/"video_url":\s*"(https:[^"]+)"/);
+                if (m2) return m2[1].replace(/\\u0026/g, '&').replace(/\u0026/g, '&');
                 return null;
             }
         """)
 
         if not video_url:
-            browser.close()
             raise RuntimeError("Could not extract video URL from page")
 
         import urllib.request
         req = urllib.request.Request(video_url, headers={
-            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+            "User-Agent": _IG_UA,
             "Referer": "https://www.instagram.com/",
         })
-        with urllib.request.urlopen(req) as resp:
+        with urllib.request.urlopen(req, timeout=120) as resp:
             data = resp.read()
         with open(video_path, "wb") as f:
             f.write(data)
 
-        page_meta = page.evaluate("""
+        page_meta = page.evaluate(r"""
             () => {
                 const data = {};
                 const tags = document.querySelectorAll('meta[property^="og:"]');
@@ -185,24 +167,168 @@ def _download_via_playwright(url: str, output_dir: str, session_file: str = None
                 if (desc) data['description'] = desc.content;
                 return data;
             }
-        """)
-        if page_meta:
-            metadata = {
-                "author": page_meta.get("title", "").split(" on Instagram")[0].strip(),
-                "caption": page_meta.get("description", ""),
-                "url": url,
-                "title": page_meta.get("title", ""),
-            }
-
-        browser.close()
+        """) or {}
+        page_meta["url"] = url
+        metadata = _parse_instagram_meta(page_meta)
+    finally:
+        page.close()
 
     return video_path, metadata
 
 
-def extract_metadata(url: str, output_dir: str, cookies_from: str = None, session_file: str = None) -> tuple:
-    """Download reel and extract metadata using yt-dlp, with Playwright fallback."""
+def _load_playwright_cookies(session_file: str | None) -> list[dict]:
+    """Read a Playwright storage_state file or a plain cookie list."""
+    if not session_file or not os.path.exists(session_file):
+        return []
+    try:
+        with open(session_file, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, json.JSONDecodeError):
+        return []
+    cookies = data.get("cookies") if isinstance(data, dict) else data
+    if not isinstance(cookies, list):
+        return []
+    return [item for item in cookies if isinstance(item, dict) and item.get("name")]
+
+
+def _netscape_cookie_file(session_file: str | None, output_dir: str) -> str | None:
+    """Convert Playwright JSON cookies into a yt-dlp/curl Netscape cookie file."""
+    cookies = _load_playwright_cookies(session_file)
+    if not cookies:
+        return None
+    path = os.path.join(output_dir, ".cookies.txt")
+    lines = ["# Netscape HTTP Cookie File", ""]
+    for cookie in cookies:
+        domain = str(cookie.get("domain") or "")
+        if not domain:
+            continue
+        expires = cookie.get("expires")
+        try:
+            expires = int(expires) if expires else 0
+        except (TypeError, ValueError):
+            expires = 0
+        lines.append("\t".join([
+            domain,
+            "TRUE" if domain.startswith(".") else "FALSE",
+            str(cookie.get("path") or "/"),
+            "TRUE" if cookie.get("secure") else "FALSE",
+            str(expires),
+            str(cookie.get("name") or ""),
+            str(cookie.get("value") or ""),
+        ]))
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write("\n".join(lines) + "\n")
+    return path
+
+
+def _download_via_playwright(url: str, output_dir: str, session_file: str = None,
+                             context=None) -> tuple:
+    """Download a reel with Playwright. Reuses ``context`` when supplied so a
+    bulk run can share one browser instead of relaunching per URL."""
+    if context is not None:
+        return _scrape_reel(context, url, output_dir)
+
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        try:
+            ctx = browser.new_context(user_agent=_IG_UA)
+            cookies = _load_playwright_cookies(session_file)
+            if cookies:
+                ctx.add_cookies(cookies)
+            return _scrape_reel(ctx, url, output_dir)
+        finally:
+            browser.close()
+
+
+def _download_via_instaloader(url: str, output_dir: str, session_file: str = None) -> tuple:
+    """Download a reel using instaloader."""
+    import instaloader
+
+    shortcode_match = re.search(r"(?:/reel/|/reels/|/p/)([A-Za-z0-9_-]+)", url)
+    if not shortcode_match:
+        raise RuntimeError(f"Could not extract shortcode from URL: {url}")
+    shortcode = shortcode_match.group(1)
+    video_path = os.path.join(output_dir, "reel.mp4")
+
+    loader = instaloader.Instaloader(
+        download_videos=True,
+        download_video_thumbnails=False,
+        download_geotags=False,
+        download_comments=False,
+        save_metadata=False,
+        compress_json=False,
+        dirname_pattern=output_dir,
+        filename_pattern="reel",
+    )
+    if session_file and os.path.exists(session_file):
+        try:
+            loader.load_session_from_file("", filename=session_file)
+        except TypeError:
+            loader.load_session_from_file("", session_file)
+        except Exception as e:
+            print(f"  Warning: Failed to load instaloader session: {e}", file=sys.stderr)
+
+    try:
+        post = instaloader.Post.from_shortcode(loader.context, shortcode)
+        loader.download_post(post, target="")
+    except Exception as e:
+        raise RuntimeError(f"instaloader failed: {e}")
+
+    for filename in os.listdir(output_dir):
+        if filename.endswith(".mp4"):
+            src = os.path.join(output_dir, filename)
+            if src != video_path:
+                shutil.move(src, video_path)
+            break
+    if not os.path.isfile(video_path):
+        raise RuntimeError("instaloader did not download an mp4")
+
+    caption = post.caption or ""
+    return video_path, {
+        "author": post.owner_username,
+        "author_handle": post.owner_username,
+        "title": f"Reel by @{post.owner_username}",
+        "caption": caption,
+        "view_count": getattr(post, "video_view_count", None),
+        "like_count": post.likes,
+        "comment_count": post.comments,
+        "duration_seconds": getattr(post, "video_duration", None),
+        "upload_date": post.date_utc.strftime("%Y%m%d"),
+        "url": url,
+        "hashtags": [tag.lstrip("#") for tag in getattr(post, "caption_hashtags", [])],
+        "thumbnail": post.url,
+    }
+
+
+def extract_metadata(url: str, output_dir: str, cookies_from: str = None,
+                     session_file: str = None, downloader: str = "auto") -> tuple:
+    """Download a reel and return ``(video_path, metadata)``.
+
+    ``url`` may be a local media file produced by ``bulk_import.py``; a sidecar
+    ``.json`` next to it supplies the metadata and no network is used.
+    ``downloader`` selects yt-dlp, Playwright, or yt-dlp-with-fallback (auto).
+    """
     video_path = os.path.join(output_dir, "reel.mp4")
     info_path = os.path.join(output_dir, "reel.info.json")
+
+    if os.path.isfile(url):
+        shutil.copy2(url, video_path)
+        stem = os.path.splitext(url)[0]
+        metadata = {}
+        for cand in (stem + ".json", stem + ".info.json"):
+            if os.path.isfile(cand):
+                with open(cand) as fh:
+                    metadata = json.load(fh)
+                break
+        metadata.setdefault("url", url)
+        return video_path, metadata
+
+    if downloader == "playwright":
+        return _download_via_playwright(url, output_dir, session_file=session_file)
+    if downloader == "instaloader":
+        return _download_via_instaloader(url, output_dir, session_file=session_file)
 
     cmd = [
         _resolve_tool("yt-dlp"),
@@ -212,10 +338,20 @@ def extract_metadata(url: str, output_dir: str, cookies_from: str = None, sessio
     ]
     if cookies_from:
         cmd.extend(["--cookies-from-browser", cookies_from])
+    cookie_file = None if cookies_from else _netscape_cookie_file(session_file, output_dir)
+    if cookie_file:
+        cmd.extend(["--cookies", cookie_file])
     cmd.append(url)
 
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8",
+                                errors="replace")
+    finally:
+        if cookie_file and os.path.exists(cookie_file):
+            os.remove(cookie_file)
     if result.returncode != 0:
+        if downloader == "yt-dlp":
+            raise RuntimeError(f"yt-dlp failed: {result.stderr.strip()[-500:]}")
         print("yt-dlp failed, trying Playwright fallback...", file=sys.stderr)
         return _download_via_playwright(url, output_dir, session_file=session_file)
 
@@ -254,19 +390,95 @@ def extract_metadata(url: str, output_dir: str, cookies_from: str = None, sessio
 
 
 # ---------------------------------------------------------------------------
+# Frame extraction — for visual analysis by vision-capable models
+# ---------------------------------------------------------------------------
+
+def extract_frames(video_path: str, output_dir: str, interval: float = 1.0,
+                   max_frames: int = 60, quality: int = 75,
+                   max_width: int = 1280) -> list:
+    """Extract key frames from video at regular intervals using ffmpeg.
+
+    Frames are written as WebP (quality ``quality``) — roughly half the bytes
+    of the JPEGs this used to emit, at *higher* fidelity. Falls back to JPEG
+    only if the encoder is unavailable.
+    """
+    frames_dir = os.path.join(output_dir, "frames")
+    os.makedirs(frames_dir, exist_ok=True)
+    duration = _get_video_duration(video_path)
+    if duration <= 0:
+        return []
+    count = min(max_frames, max(1, int(duration / interval)))
+    actual_interval = duration / count if count > 1 else 0
+    frame_paths = []
+    for i in range(count):
+        ts = i * actual_interval
+        ts_str = f"{int(ts // 3600):02d}-{int((ts % 3600) // 60):02d}-{ts % 60:06.3f}"
+        frame_path = os.path.join(frames_dir, f"frame-{ts_str}.webp")
+        scale = ["-vf", f"scale='min({max_width},iw)':-2"] if max_width else []
+        cmd = [_resolve_tool("ffmpeg"), "-y", "-ss", str(ts),
+               "-i", video_path, "-vframes", "1", *scale,
+               "-c:v", "libwebp", "-quality", str(quality), "-compression_level", "6",
+               frame_path]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode == 0 and os.path.exists(frame_path):
+            frame_paths.append({"path": frame_path, "timestamp": ts})
+            continue
+
+        # Fallback: JPEG if libwebp is missing from this ffmpeg build.
+        frame_path = os.path.join(frames_dir, f"frame-{ts_str}.jpg")
+        cmd2 = [_resolve_tool("ffmpeg"), "-y", "-ss", str(ts),
+                "-i", video_path, "-vframes", "1", *scale, "-q:v", "10", frame_path]
+        result = subprocess.run(cmd2, capture_output=True, text=True)
+        if result.returncode == 0 and os.path.exists(frame_path):
+            frame_paths.append({"path": frame_path, "timestamp": ts})
+    return frame_paths
+
+
+def _get_video_duration(video_path: str) -> float:
+    """Return video duration in seconds via ffprobe, or -1 on failure."""
+    cmd = [_resolve_tool("ffprobe"), "-v", "error", "-show_entries",
+           "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", video_path]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    try:
+        return float(result.stdout.strip())
+    except (ValueError, TypeError):
+        return -1.0
+
+# ---------------------------------------------------------------------------
 # Audio / transcription / music
 # ---------------------------------------------------------------------------
 
-def extract_audio(video_path: str, output_dir: str) -> str:
-    """Extract mono 16kHz WAV from video using ffmpeg."""
+def has_audio_stream(video_path: str) -> bool:
+    """Return False when ffprobe confirms the video has no audio track."""
+    cmd = [
+        _resolve_tool("ffprobe"), "-v", "error", "-select_streams", "a",
+        "-show_entries", "stream=index", "-of", "csv=p=0", video_path,
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8",
+                            errors="replace")
+    if result.returncode != 0:
+        return True  # let ffmpeg produce the real error
+    return bool(result.stdout.strip())
+
+
+def extract_audio(video_path: str, output_dir: str) -> str | None:
+    """Extract mono 16kHz WAV from video.
+
+    Returns ``None`` for silent videos instead of failing the whole extraction.
+    """
+    if not has_audio_stream(video_path):
+        return None
     audio_path = os.path.join(output_dir, "audio.wav")
     cmd = [
         _resolve_tool("ffmpeg"), "-y", "-i", video_path,
         "-vn", "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1",
         audio_path,
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8",
+                            errors="replace")
     if result.returncode != 0:
+        if "does not contain any stream" in (result.stderr or ""):
+            return None
         raise RuntimeError(f"ffmpeg failed: {result.stderr.strip()}")
     return audio_path
 
@@ -316,54 +528,52 @@ def identify_music(audio_path: str) -> dict:
 # Formatting
 # ---------------------------------------------------------------------------
 
-def _slugify(value: str) -> str:
-    slug = re.sub(r"[^\w\s-]", "", str(value).lower()).strip()
-    slug = re.sub(r"[\s_-]+", "-", slug)
-    return slug or "unknown"
-
-
 def format_output(metadata: dict, transcript: dict, original_url: str = "",
-                 music: dict = None, topic: str = "", smart_meta: dict = None) -> str:
+                 music: dict = None, topic: str = "", smart_meta: dict = None,
+                 frames: list = None, frames_vault_rel_dir: str = "",
+                 classification: str = CLASSIFICATION_PENDING) -> str:
     """Format extraction results as a tagged markdown note."""
     creator = metadata.get("author", "Unknown")
     handle = metadata.get("author_handle") or metadata.get("author_id", "")
-    tags = [t.lower().strip() for t in metadata.get("hashtags", []) if isinstance(t, str)]
+    tags = [t.lower().strip() for t in (metadata.get("hashtags") or []) if isinstance(t, str)]
     extracted = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     url_display = original_url or metadata.get("url", "")
 
-    # Smart metadata
-    niche = smart_meta.get("niche", "general") if smart_meta else "general"
-    category = smart_meta.get("category", "general") if smart_meta else "general"
-    industry = smart_meta.get("industry", "general") if smart_meta else "general"
+    smart_meta = smart_meta or {}
+    niche = smart_meta.get("niche") or UNCLASSIFIED
+    category = smart_meta.get("category") or UNCLASSIFIED
+    industry = smart_meta.get("industry") or UNCLASSIFIED
 
-    # Frontmatter
-    fm = ["---"]
-    fm.append(f'creator: "{creator}"')
+    frontmatter = {
+        "creator": creator,
+        "niche": niche,
+        "category": category,
+        "industry": industry,
+        "classification": classification,
+        "source": url_display,
+        "source_id": source_id(url_display),
+        "extracted": extracted,
+    }
     if handle:
-        fm.append(f"handle: {handle}")
+        frontmatter["handle"] = handle
     if topic:
-        fm.append(f"topic: {topic}")
-    fm.append(f"niche: {niche}")
-    fm.append(f"category: {category}")
-    fm.append(f"industry: {industry}")
+        frontmatter["topic"] = topic
     if tags:
-        fm.append(f"tags: [{', '.join(tags)}]")
-    fm.append(f"source: {url_display}")
-    fm.append(f"extracted: {extracted}")
-    fm.append("---")
+        frontmatter["tags"] = tags
 
-    lines = list(fm)
-    lines += ["", "# Reel Extraction", ""]
+    lines = [dump_frontmatter(frontmatter), "# Reel Extraction", ""]
     lines.append(f"**Source:** [{url_display}]({url_display})")
     lines.append(f"**Extracted:** {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}")
     lines.append("")
 
-    # Metadata
     lines += ["## Metadata", ""]
     lines.append(f"- **Creator:** {creator} (@{handle})" if handle else f"- **Creator:** {creator}")
+    if topic:
+        lines.append(f"- **Topic:** {topic}")
     lines.append(f"- **Niche:** {niche}")
     lines.append(f"- **Category:** {category}")
     lines.append(f"- **Industry:** {industry}")
+    lines.append(f"- **Classification:** {classification}")
     if metadata.get("upload_date"):
         d = metadata["upload_date"]
         lines.append(f"- **Upload Date:** {d[:4]}-{d[4:6]}-{d[6:8]}" if len(d) == 8 else f"- **Upload Date:** {d}")
@@ -372,10 +582,31 @@ def format_output(metadata: dict, transcript: dict, original_url: str = "",
         lines.append(f"- **Duration:** {mins}:{secs:02d}")
     for label, key in (("Views", "view_count"), ("Likes", "like_count"), ("Comments", "comment_count")):
         if metadata.get(key) is not None:
-            lines.append(f"- **{label}:** {metadata[key]:,}")
+            try:
+                lines.append(f"- **{label}:** {int(metadata[key]):,}")
+            except (TypeError, ValueError):
+                lines.append(f"- **{label}:** {metadata[key]}")
     lines.append("")
 
-    # Music
+    if frames and frames_vault_rel_dir:
+        lines += ["## Visual Frames", ""]
+        lines.append(f"> *Frames stored in `{frames_vault_rel_dir}/` — load for visual analysis*")
+        lines.append("")
+        for f in frames:
+            ts = f.get("timestamp", 0)
+            mins, secs = divmod(int(ts), 60)
+            fname = os.path.basename(f["path"])
+            lines.append(f"- [{mins:02d}:{secs:02d}] ![[{frames_vault_rel_dir}/{fname}]]")
+        lines.append("")
+
+        lines += ["## Key Frame", ""]
+        lines.append("After viewing the frames above, identify and mark **one frame** where:")
+        lines.append("- Any on-screen text/prompt/code is **fully visible** (no face or hand blocking it)")
+        lines.append("- The creator has moved aside to reveal content")
+        lines.append("")
+        lines.append("Format: `KEY: [mm:ss] — <what is visible on screen>`")
+        lines.append("")
+
     if music:
         lines += ["## Music", ""]
         lines.append(f"- **Song:** {music.get('title', 'Unknown')}")
@@ -388,18 +619,15 @@ def format_output(metadata: dict, transcript: dict, original_url: str = "",
             lines.append(f"- **Shazam:** [{music['shazam_url']}]({music['shazam_url']})")
         lines.append("")
 
-    # Caption + hashtags
     if metadata.get("caption"):
         lines += ["## Caption", "", metadata["caption"], ""]
     if tags:
         lines += ["## Hashtags", "", " ".join(f"#{t}" for t in tags), ""]
 
-    # Transcript
     lines += ["## Transcript", "",
               f"*Language detected: {transcript.get('language', 'unknown')}*", "",
               transcript.get("text", "(no speech detected)"), ""]
 
-    # Timestamped segments
     if transcript.get("segments"):
         lines += ["## Timestamped Transcript", ""]
         for seg in transcript["segments"]:
@@ -407,198 +635,200 @@ def format_output(metadata: dict, transcript: dict, original_url: str = "",
             lines.append(f"[{mins:02d}:{secs:02d}] {seg['text']}")
         lines.append("")
 
-    return "\n".join(lines)
+    return "\n".join(lines).rstrip() + "\n"
 
 
 # ---------------------------------------------------------------------------
-# Index building — grows as reels are saved
+# Shared pipeline
 # ---------------------------------------------------------------------------
 
-def _update_indexes(vault_path: str, metadata: dict, smart_meta: dict, topic: str):
-    """Append this reel's entry to the vault's index files."""
-    index_dir = os.path.join(vault_path, "index")
-    os.makedirs(index_dir, exist_ok=True)
+def _default_smart_meta() -> dict:
+    """Classification is intentionally left to the calling AI agent."""
+    return {
+        "niche": UNCLASSIFIED,
+        "category": UNCLASSIFIED,
+        "industry": UNCLASSIFIED,
+    }
 
-    creator = metadata.get("author", "Unknown")
-    handle = metadata.get("author_handle", "")
-    niche = smart_meta.get("niche", "general")
-    category = smart_meta.get("category", "general")
-    industry = smart_meta.get("industry", "general")
-    extracted = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    url = metadata.get("url", "")
-    slug = _slugify(metadata.get("author_handle") or creator)
 
-    entry = f"- [[{slug}-reel-*]] — {creator} ({topic}) — {extracted}"
+def run_extraction(url: str, whisper_model: str = "base", topic: str = "",
+                   no_music: bool = False, no_frames: bool = False,
+                   frame_interval: float = 1.0, frame_max_width: int = 1280,
+                   cookies_from: str = None, session_file: str = None,
+                   downloader: str = "auto", output_dir: str = None,
+                   save_dir: str = None, save: bool = True,
+                   storage: str = None, log=None) -> dict:
+    """Run the full extraction pipeline and optionally save the note.
 
-    # Update niche index
-    niche_file = os.path.join(index_dir, f"{niche}.md")
-    if not os.path.exists(niche_file):
-        with open(niche_file, "w") as f:
-            f.write(f"---\ntags: [index, niche]\n---\n\n# {niche.title()}\n\n")
-    with open(niche_file, "a") as f:
-        f.write(entry + "\n")
+    This is the single implementation used by both the CLI and the MCP server.
+    The AI agent that calls this function is responsible for classification;
+    the saved note starts with ``classification: pending``.
+    """
+    def emit(message: str) -> None:
+        if log:
+            log(message)
 
-    # Update category index
-    cat_file = os.path.join(index_dir, f"{category}.md")
-    if not os.path.exists(cat_file):
-        with open(cat_file, "w") as f:
-            f.write(f"---\ntags: [index, category]\n---\n\n# {category.title()}\n\n")
-    with open(cat_file, "a") as f:
-        f.write(entry + "\n")
+    cfg = load_config()
+    if save_dir:
+        cfg = dict(cfg)
+        cfg.update({"storage": "obsidian", "vault_path": os.path.expanduser(save_dir)})
+        manager = StorageManager(cfg, "obsidian")
+    else:
+        manager = StorageManager(cfg, storage)
 
-    # Update industry index
-    ind_file = os.path.join(index_dir, f"{industry}.md")
-    if not os.path.exists(ind_file):
-        with open(ind_file, "w") as f:
-            f.write(f"---\ntags: [index, industry]\n---\n\n# {industry.title()}\n\n")
-    with open(ind_file, "a") as f:
-        f.write(entry + "\n")
+    work_dir = output_dir or tempfile.mkdtemp(prefix="reel_")
+    own_temp = not output_dir
+    emit("Loading cached reel..." if os.path.isfile(url) else "Downloading reel...")
 
-    # Update creator index
-    creators_dir = os.path.join(vault_path, "creators")
-    os.makedirs(creators_dir, exist_ok=True)
-    creator_file = os.path.join(creators_dir, f"{slug}.md")
-    if not os.path.exists(creator_file):
-        with open(creator_file, "w") as f:
-            f.write(f"---\ntags: [creator]\n---\n\n# {creator}\n\n")
-    with open(creator_file, "a") as f:
-        f.write(f"- [[{slug}-reel-*]] ({topic}) — {extracted}\n")
+    try:
+        video_path, metadata = extract_metadata(
+            url, work_dir, cookies_from=cookies_from,
+            session_file=session_file, downloader=downloader,
+        )
+        source = metadata.get("url") or (url if url.startswith(("http://", "https://")) else "")
 
-    # Update main index
-    main_index = os.path.join(vault_path, "Index.md")
-    if os.path.exists(main_index):
-        with open(main_index) as f:
-            content = f.read()
-        # Add to "All Reels" dataview if not already there
-        if f'"{niche}"' not in content:
-            pass  # dataview handles this automatically
+        emit("Extracting audio...")
+        audio_path = extract_audio(video_path, work_dir)
+        if audio_path:
+            emit(f"Transcribing with Whisper ({whisper_model})...")
+            transcript = transcribe(audio_path, whisper_model)
+        else:
+            emit("No audio track found; saving a visual-only note.")
+            transcript = {"text": "", "language": "unknown", "segments": []}
+
+        music = {}
+        if audio_path and not no_music:
+            emit("Identifying music with Shazam...")
+            try:
+                music = identify_music(audio_path)
+                if music:
+                    emit(f"  Found: {music.get('artist')} - {music.get('title')}")
+                else:
+                    emit("  No music identified (may be speech-only)")
+            except Exception as exc:
+                emit(f"  Shazam failed: {exc}")
+
+        smart_meta = _default_smart_meta()
+        emit("Classification: pending (the AI agent fills this in after extraction)")
+
+        frames = []
+        if not no_frames and manager.supports_frames:
+            emit("Extracting visual frames...")
+            try:
+                frames = extract_frames(video_path, work_dir, interval=frame_interval,
+                                        max_width=frame_max_width)
+                emit(f"  Captured {len(frames)} frames")
+            except Exception as exc:
+                emit(f"  Frame extraction failed: {exc}")
+
+        base_name = manager.resolve_base(metadata, topic, source)
+        frames_rel = ""
+        if frames and manager.supports_frames:
+            frames_rel = f"Reels/{slugify(topic or 'general')}/frames/{base_name}"
+
+        note = format_output(
+            metadata, transcript, original_url=source or url,
+            music=music or None, topic=topic, smart_meta=smart_meta,
+            frames=frames, frames_vault_rel_dir=frames_rel,
+            classification=CLASSIFICATION_PENDING,
+        )
+
+        frontmatter, _ = split_frontmatter(note)
+
+        saved: list[dict] = []
+        errors: list[str] = []
+        if save and manager.configured_backends():
+            result = manager.save(note, frontmatter, metadata, transcript, music,
+                                  topic, base_name, frames)
+            saved = result["saved"]
+            errors = result["errors"]
+            for item in saved:
+                location = item.get("path") or item.get("url") or item.get("ref")
+                emit(f"Saved ({item['backend']}): {location}")
+            for error in errors:
+                emit(f"Warning: {error}")
+        elif save:
+            errors.append("No storage backend is configured. Run reels-vault-connect.")
+
+        return {
+            "url": source or url,
+            "base_name": base_name,
+            "metadata": metadata,
+            "transcript": transcript,
+            "music": music,
+            "smart_meta": smart_meta,
+            "classification": CLASSIFICATION_PENDING,
+            "note": note,
+            "frames": frames,
+            "saved": saved,
+            "errors": errors,
+        }
+    finally:
+        if own_temp and os.path.exists(work_dir):
+            shutil.rmtree(work_dir, ignore_errors=True)
 
 
 # ---------------------------------------------------------------------------
-# Save
-# ---------------------------------------------------------------------------
-
-def save_extraction(output: str, metadata: dict, save_dir: str, topic: str = "") -> str:
-    """Save the reel into <save-dir>/<topic>/ as a tagged markdown note."""
-    target_dir = os.path.join(save_dir, _slugify(topic)) if topic else save_dir
-    os.makedirs(target_dir, exist_ok=True)
-
-    handle = _slugify(metadata.get("author_handle") or metadata.get("author", "unknown"))
-    upload_date = metadata.get("upload_date", "")
-    if len(upload_date) == 8:
-        upload_date = f"{upload_date[:4]}-{upload_date[4:6]}-{upload_date[6:8]}"
-    if not upload_date:
-        upload_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-
-    filepath = os.path.join(target_dir, f"{handle}-reel-{upload_date}.md")
-    counter = 2
-    while os.path.exists(filepath):
-        filepath = os.path.join(target_dir, f"{handle}-reel-{upload_date}-{counter}.md")
-        counter += 1
-
-    with open(filepath, "w") as f:
-        f.write(output)
-    return filepath
-
-
-# ---------------------------------------------------------------------------
-# Main
+# CLI
 # ---------------------------------------------------------------------------
 
 def main():
     parser = argparse.ArgumentParser(
         description="Extract and save an Instagram Reel to your vault."
     )
-    parser.add_argument("url", help="Instagram Reel URL")
+    parser.add_argument("url", help="Instagram Reel URL or a local cached video")
     parser.add_argument("--whisper-model", default="base",
                         help="Whisper model: tiny, base, small, medium, large (default: base)")
     parser.add_argument("--output-dir", default=None,
                         help="Directory for temporary files (default: system temp)")
     parser.add_argument("--save-dir", default=None,
-                        help="Override vault location (default: your connected vault)")
-    parser.add_argument("--topic", default=None,
+                        help="Override Obsidian vault location for this run")
+    parser.add_argument("--storage", choices=["obsidian", "notion", "both"], default=None,
+                        help="Override the configured storage backend")
+    parser.add_argument("--topic", default="",
                         help="Topic to file this reel under (e.g. 'content-creation')")
     parser.add_argument("--json", action="store_true",
-                        help="Output raw JSON instead of markdown")
+                        help="Print JSON to stdout (the note is still saved as Markdown)")
+    parser.add_argument("--no-save", action="store_true",
+                        help="Extract only; do not write to a storage backend")
     parser.add_argument("--no-music", action="store_true",
                         help="Skip Shazam music identification")
     parser.add_argument("--cookies-from", default=None,
                         help="Browser to read cookies from (e.g. chrome, firefox)")
     parser.add_argument("--session-file", default=None,
-                        help="Path to Instagram session cookies JSON")
+                        help="Path to an Instagram session file")
+    parser.add_argument("--downloader", default="auto",
+                        choices=["auto", "yt-dlp", "playwright", "instaloader"],
+                        help="How to fetch the reel (default: yt-dlp, Playwright on failure)")
+    parser.add_argument("--no-frames", action="store_true",
+                        help="Skip frame extraction for visual analysis")
+    parser.add_argument("--frame-interval", type=float, default=1.0,
+                        help="Seconds between frame captures (default: 1.0)")
+    parser.add_argument("--frame-max-width", type=int, default=1280,
+                        help="Maximum frame width in pixels (default: 1280)")
     args = parser.parse_args()
 
-    work_dir = args.output_dir or tempfile.mkdtemp(prefix="reel_")
-    own_temp = not args.output_dir
-
     try:
-        print("Downloading reel...", file=sys.stderr)
-        video_path, metadata = extract_metadata(args.url, work_dir, cookies_from=args.cookies_from, session_file=args.session_file)
+        result = run_extraction(
+            args.url, whisper_model=args.whisper_model, topic=args.topic,
+            no_music=args.no_music, no_frames=args.no_frames,
+            frame_interval=args.frame_interval, frame_max_width=args.frame_max_width,
+            cookies_from=args.cookies_from, session_file=args.session_file,
+            downloader=args.downloader, output_dir=args.output_dir,
+            save_dir=args.save_dir, save=not args.no_save,
+            storage=args.storage, log=lambda message: print(message, file=sys.stderr),
+        )
+    except Exception as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        sys.exit(1)
 
-        print("Extracting audio...", file=sys.stderr)
-        audio_path = extract_audio(video_path, work_dir)
-
-        print(f"Transcribing with Whisper ({args.whisper_model})...", file=sys.stderr)
-        transcript = transcribe(audio_path, args.whisper_model)
-
-        music = {}
-        if not args.no_music:
-            print("Identifying music with Shazam...", file=sys.stderr)
-            try:
-                music = identify_music(audio_path)
-                if music:
-                    print(f"  Found: {music.get('artist')} - {music.get('title')}", file=sys.stderr)
-                else:
-                    print("  No music identified (may be speech-only)", file=sys.stderr)
-            except Exception as e:
-                print(f"  Shazam failed: {e}", file=sys.stderr)
-
-        # Smart metadata detection from transcript + caption
-        analyze_text = " ".join([
-            metadata.get("caption", ""),
-            metadata.get("title", ""),
-            transcript.get("text", ""),
-            " ".join(metadata.get("hashtags", [])),
-        ])
-        smart_meta = detect_metadata(analyze_text)
-        print(f"  Detected: niche={smart_meta['niche']}, category={smart_meta['category']}, industry={smart_meta['industry']}", file=sys.stderr)
-
-        if args.json:
-            output = json.dumps(
-                {"metadata": metadata, "transcript": transcript, "music": music, "smart_meta": smart_meta},
-                indent=2, default=str,
-            )
-        else:
-            output = format_output(metadata, transcript,
-                                   original_url=args.url, music=music or None,
-                                   topic=args.topic or "", smart_meta=smart_meta)
-
-        print(output)
-
-        # Determine save location
-        save_dir = args.save_dir
-        if not save_dir:
-            try:
-                connected = load_config().get("vault_path", "")
-                if connected and os.path.isdir(connected):
-                    save_dir = connected
-            except Exception:
-                pass
-
-        if save_dir:
-            save_path = save_extraction(output, metadata,
-                                        os.path.expanduser(save_dir), topic=args.topic or "")
-            # Build indexes
-            _update_indexes(os.path.expanduser(save_dir), metadata, smart_meta, args.topic or "")
-            where = f" under topic '{args.topic}'" if args.topic else ""
-            print(f"\nSaved to vault{where}:\n  {save_path}", file=sys.stderr)
-        elif not args.json:
-            print("\n(Tip: run reels-vault-connect once to auto-file reels into your "
-                  "Obsidian vault.)", file=sys.stderr)
-
-    finally:
-        if own_temp and os.path.exists(work_dir):
-            shutil.rmtree(work_dir, ignore_errors=True)
+    if args.json:
+        print(json.dumps(result, indent=2, default=str, ensure_ascii=False))
+    else:
+        print(result["note"])
+    if result.get("errors"):
+        for error in result["errors"]:
+            print(f"Warning: {error}", file=sys.stderr)
 
 
 if __name__ == "__main__":

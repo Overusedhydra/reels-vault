@@ -1,17 +1,19 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
-# Reels Vault — Setup
-# Auto-detects Python 3.10+, uses uv if available.
+# Reels Vault — setup
+# Auto-detects Python 3.10+, uses uv when available.
 #
-set -e
+set -euo pipefail
+
+SCRIPT_DIR="$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+VENV_DIR="$SCRIPT_DIR/.venv"
 
 echo "Reels Vault — Setup"
 echo "==================="
 
-# Auto-detect Python 3.10+
 PYTHON=""
 for candidate in python3.13 python3.12 python3.11 python3.10 python3 python; do
-    if command -v "$candidate" &> /dev/null; then
+    if command -v "$candidate" >/dev/null 2>&1; then
         if "$candidate" -c 'import sys; sys.exit(0 if sys.version_info >= (3,10) else 1)' 2>/dev/null; then
             PYTHON="$candidate"
             break
@@ -27,12 +29,11 @@ if [ -z "$PYTHON" ]; then
 fi
 echo "Python: $PYTHON ($($PYTHON --version 2>&1))"
 
-# ffmpeg
-if ! command -v ffmpeg &> /dev/null; then
+if ! command -v ffmpeg >/dev/null 2>&1; then
     echo "Installing ffmpeg..."
-    if command -v brew &> /dev/null; then
+    if command -v brew >/dev/null 2>&1; then
         brew install ffmpeg
-    elif command -v apt-get &> /dev/null; then
+    elif command -v apt-get >/dev/null 2>&1; then
         sudo apt-get update && sudo apt-get install -y ffmpeg
     else
         echo "Install ffmpeg manually: https://ffmpeg.org/download.html"
@@ -41,12 +42,8 @@ if ! command -v ffmpeg &> /dev/null; then
 fi
 echo "ffmpeg: OK"
 
-# Venv — prefer uv for speed
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-VENV_DIR="$SCRIPT_DIR/.venv"
-
 if [ ! -d "$VENV_DIR" ]; then
-    if command -v uv &> /dev/null; then
+    if command -v uv >/dev/null 2>&1; then
         echo "Creating venv with uv..."
         uv venv "$VENV_DIR" --python "$PYTHON"
     else
@@ -55,21 +52,26 @@ if [ ! -d "$VENV_DIR" ]; then
     fi
 fi
 
-echo "Installing packages..."
-if command -v uv &> /dev/null; then
-    uv pip install --python "$VENV_DIR/bin/python" -r "$SCRIPT_DIR/requirements.txt"
+echo "Installing Reels Vault and dependencies..."
+if command -v uv >/dev/null 2>&1; then
+    uv pip install --python "$VENV_DIR/bin/python" -e "${SCRIPT_DIR}[mcp]"
 else
-    "$VENV_DIR/bin/pip" install --upgrade pip >/dev/null
-    "$VENV_DIR/bin/pip" install -r "$SCRIPT_DIR/requirements.txt"
+    "$VENV_DIR/bin/python" -m pip install --upgrade pip >/dev/null
+    "$VENV_DIR/bin/python" -m pip install -e "${SCRIPT_DIR}[mcp]"
 fi
 
-# Browser for the Playwright download fallback (yt-dlp is primary). Best-effort:
-# don't fail the whole setup if the download hiccups.
-echo "Installing Playwright browser (download fallback)..."
-"$VENV_DIR/bin/python" -m playwright install chromium || \
-    echo "  (skipped — yt-dlp is the primary downloader; browser fallback unavailable)"
+if [ "${REELS_VAULT_SKIP_BROWSER:-0}" != "1" ]; then
+    echo "Installing Playwright Chromium (set REELS_VAULT_SKIP_BROWSER=1 to skip)..."
+    "$VENV_DIR/bin/python" -m playwright install chromium || {
+        echo "Warning: Chromium install failed; bulk import needs it."
+    }
+fi
+
+mkdir -p "$HOME/.config/reels-vault/session"
+chmod 700 "$HOME/.config/reels-vault/session" 2>/dev/null || true
 
 echo ""
 echo "Setup complete!"
-echo "  Connect vault:  $VENV_DIR/bin/reels-vault-connect"
-echo "  Extract a reel: $VENV_DIR/bin/reels-vault <url> --topic <topic>"
+echo "  Connect storage: $VENV_DIR/bin/reels-vault-connect"
+echo "  Save a reel:     $VENV_DIR/bin/reels-vault <url> --topic <topic>"
+echo "  MCP server:      $VENV_DIR/bin/reels-vault-mcp --check"

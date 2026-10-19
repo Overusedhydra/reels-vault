@@ -1,23 +1,23 @@
 ---
 name: reels-vault
 description: >-
-  Save, transcribe, and search Instagram reels in a local Obsidian "Reel Vault".
-  Use when the user shares an Instagram reel/post URL (instagram.com/reel/,
+  Save, transcribe, classify, and search Instagram reels in Obsidian, Notion, or
+  both. Use when the user shares an Instagram reel/post URL (instagram.com/reel/,
   /reels/, or /p/) and wants to save, extract, transcribe, or analyze it — or
   when they ask what's in their vault ("what do creators say about hooks",
-  "show my reels on copywriting", "which creators have I saved"). Runs entirely
-  on the user's machine via the reels-vault CLI; no cloud, no paid APIs.
-compatibility: "Requires Python 3.10+, ffmpeg, yt-dlp, openai-whisper, and shazamio. Uses uv for fast venv setup."
+  "show my reels on copywriting", "which creators have I saved"). Runs locally
+  via the reels-vault CLI; no cloud classification APIs.
+compatibility: "Requires Python 3.10+, ffmpeg, yt-dlp, openai-whisper, shazamio, Playwright, and PyYAML."
 ---
 
 # Reels Vault
 
-A local pipeline that downloads any public Instagram reel, transcribes it with
-Whisper, identifies the background music with Shazam, extracts smart metadata
-(niche, category, industry), and files it into the user's Obsidian vault —
-tagged and indexed so it stays searchable.
+Download a public Instagram reel, transcribe it with Whisper, identify music
+with Shazam, extract optional frames, and save a tagged note to Obsidian,
+Notion, or both. Classification is **agent-in-the-loop**: you label the reel
+after saving it. The repo has no keyword tables or classification API.
 
-## Step 1 — Locate the install (do this first, every time)
+## Step 1 — Locate the install (every time)
 
 ```bash
 DIR=$(python3 -c "import json,os;p=os.path.expanduser('~/.config/reels-vault/config.json');print(json.load(open(p)).get('install_dir','') if os.path.exists(p) else '')" 2>/dev/null)
@@ -25,15 +25,23 @@ DIR=$(python3 -c "import json,os;p=os.path.expanduser('~/.config/reels-vault/con
 echo "$DIR"
 ```
 
-If `$DIR` doesn't exist or has no `.venv`, install first:
+If `$DIR` has no `.venv`, run its setup once:
 
 ```bash
-cd "$DIR" && uv venv && uv pip install -r requirements.txt
+cd "$DIR" && ./setup.sh
 ```
 
-## Step 2 — Save a reel
+If storage is not configured yet, run `"$DIR/.venv/bin/reels-vault-connect"`
+and let the user choose Obsidian, Notion, or both. Check with:
 
-When the user shares a reel URL and wants it saved:
+```bash
+"$DIR/.venv/bin/reels-vault-mcp" --check
+```
+
+## Step 2 — Save and classify a reel
+
+Save the reel first. Use `--json` when you need the full result, but the note is
+saved either way:
 
 ```bash
 "$DIR/.venv/bin/reels-vault" "<reel-url>" --topic "<topic>"
@@ -42,37 +50,73 @@ When the user shares a reel URL and wants it saved:
 - Pick a short, lowercase, hyphenated `--topic` from the content (e.g.
   `hooks`, `copywriting`, `content-creation`, `ai-tools`). If the user named a
   topic, use theirs verbatim.
-- Useful flags:
-  - `--whisper-model small` — slower but more accurate transcription
-  - `--no-music` — skip Shazam music identification (faster)
-  - `--cookies-from chrome` — when download fails with auth errors
+- Useful flags: `--whisper-model small`, `--no-music`, `--cookies-from chrome`,
+  `--frame-max-width 1280`, `--no-frames`.
+- `--storage obsidian|notion|both` overrides the configured backend for one run.
 
-The script auto-detects niche, category, and industry from the transcript and
-caption, and builds indexes in the vault as reels are added.
+Then classify the new note using your own reading of the transcript, caption,
+and visuals. Do not ask another API and do not guess from the creator name:
 
-## Step 3 — Search / browse the vault
+```bash
+"$DIR/.venv/bin/reels-vault-classify" --source "<reel-url>" \
+  --metadata-json '{"niche":"business","category":"marketing","industry":"education","tags":["ads","hooks"]}'
+```
 
-For "what do creators say about X" etc., read the vault directly. The vault
-path is `vault_path` in `~/.config/reels-vault/config.json`.
+- Labels are freeform unless the user configured `taxonomy.json`; if validation
+  rejects a value, read the allowed list in the error and retry.
+- Use `--list-unclassified` to find reels saved earlier without labels.
+- Use `--note "<ref>"` instead of `--source` when you already have a ref.
 
-- **Search**: grep `.md` files for keywords
-- **Browse indexes**: read `vault/index/` for niche, category, industry breakdowns
-- **Read a note**: open the matching `.md` and summarize the transcript
+## Step 2b — Bulk import many reels
+
+Bulk mode downloads everything through one shared browser into a local cache,
+then runs extraction offline:
+
+```bash
+"$DIR/.venv/bin/python" -m reels_vault.bulk_import urls.txt --topic "<topic>"
+```
+
+- `urls.txt` = one reel URL per line; duplicates and already-saved reels are skipped.
+- `--download-only` / `--process-only` resume a half-finished run.
+- `--delay 3` seconds if Instagram starts rate-limiting.
+- After the run, classify new notes with `--list-unclassified` and your own labels.
+
+## Step 2c — Import recent reels from a creator
+
+```bash
+"$DIR/.venv/bin/python" -m reels_vault.import_creator "<creator>" --limit 25 --topic "<topic>" --import
+```
+
+- `<creator>` can be `username`, `@username`, or a profile URL.
+- Omit `--import` to only write the URL list.
+- Default topic is the creator username.
+- Use `--download-only` / `--process-only` to resume through the bulk runner.
+
+## Step 3 — Search / browse
+
+Search through the MCP tools when available (`search_reels`, `list_topics`,
+`list_creators`, `read_note`). Otherwise:
+
+- **Obsidian:** read `vault_path` from `~/.config/reels-vault/config.json`,
+  then search `Reels/**/*.md` or browse `index/` and `Creators/`.
+- **Notion:** use the MCP search tools, or open the Reel Vault database views.
+- **Read a note:** open the matching ref and summarize the transcript.
 
 ## What Gets Extracted
 
-- **Creator** — username and handle
-- **Smart metadata** — niche, category, industry (auto-detected from content)
-- **Metrics** — likes, comments, views
-- **Music** — song, artist, album, genre, Shazam link
-- **Caption + hashtags**
-- **Transcript** — full spoken text with timestamps
-- **Language** — auto-detected
+- Creator name and handle
+- Metrics (views, likes, comments)
+- Music (song, artist, album, genre, Shazam link)
+- Caption and hashtags
+- Transcript with timestamps and language
+- Optional key frames as WebP, capped by `--frame-max-width` (default 1280).
+  Obsidian only; JPEG is used if ffmpeg lacks libwebp.
 
 ## Output
 
-Each saved reel is a markdown note with frontmatter (`creator`, `handle`,
-`topic`, `niche`, `category`, `industry`, `tags`, `source`, `extracted`).
-Indexes grow automatically in `vault/index/` as reels are added.
+Each note starts with valid YAML frontmatter (`creator`, `handle`, `topic`,
+`niche`, `category`, `industry`, `classification: pending`, `tags`, `source`,
+`source_id`, `extracted`). After classification, `classification` changes to
+`classified` and the labels are written to the note or Notion page.
 
 Cite the creator and source URL when quoting. Never invent transcript content.

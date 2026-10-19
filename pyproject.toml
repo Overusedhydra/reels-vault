@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "reels-vault"
-version = "0.1.0"
-description = "Extract transcripts and metadata from Instagram reels into an Obsidian knowledge base"
+version = "0.2.0"
+description = "Extract transcripts and metadata from Instagram reels into Obsidian or Notion"
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.10"
@@ -14,13 +14,19 @@ dependencies = [
     "openai-whisper>=20240927",
     "shazamio>=0.7.0",
     "playwright>=1.60.0",
-    "mcp>=1.0",
+    "instaloader>=4.14",
+    "PyYAML>=6.0",
 ]
+
+[project.optional-dependencies]
+mcp = ["mcp>=1.0"]
+dev = ["pytest>=8.0", "build>=1.2"]
 
 [project.scripts]
 reels-vault = "reels_vault.cli:main"
 reels-vault-connect = "reels_vault.connect:main"
-reels-vault-mcp = "reels_vault.server:run"
+reels-vault-classify = "reels_vault.classify:main"
+reels-vault-mcp = "reels_vault.server:main"
 
 [tool.setuptools.packages.find]
 include = ["reels_vault*"]
