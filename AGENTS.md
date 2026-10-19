@@ -1,36 +1,47 @@
 # Reels Vault
 
-Local marketing intelligence pipeline. Extract transcripts, music, and smart metadata from Instagram reels. Organize into an Obsidian knowledge base that grows as you save.
+Local-first Instagram reel extraction for Obsidian, Notion, or both. The AI
+agent that saves a reel also classifies it; there are no built-in keyword rules
+or classification API keys.
 
-## What's Built
+## Architecture
 
-- `scripts/extract_reel.py` — Core extraction (yt-dlp + Whisper + Shazam + smart metadata detection)
-- `scripts/connect.py` — One-time Obsidian vault connection (creates minimal `Reel Vault/` folder)
-- `scripts/config.py` — Stores the connected vault path at `~/.config/reels-vault/config.json`
-- `vault-template/` — Minimal vault foundation (grows as reels are saved, no pre-filled templates)
-- `mcp_server/server.py` — Real MCP server (FastMCP) for Claude/Cursor integration
-- `prompts/` — AI prompt templates for analysis
-- `skills/reels-vault/` — Claude skill for reel extraction
+- `scripts/extract_reel.py` — yt-dlp/Playwright download, Whisper transcript, Shazam, frames, note formatting, and the CLI.
+- `scripts/storage.py` — `ObsidianStore`, `NotionStore`, and `StorageManager` for `obsidian`, `notion`, and `both`.
+- `scripts/notes.py` — safe YAML frontmatter, slugs, stable note names, metadata updates.
+- `scripts/classify.py` — agent classification CLI (`--note`/`--source`, `--list-unclassified`, `--reindex`).
+- `scripts/config.py` — config at `~/.config/reels-vault/config.json` (`0600`), sessions, taxonomy, env overrides.
+- `scripts/connect.py` — one-time Obsidian/Notion setup, including Notion database creation.
+- `scripts/bulk_import.py`, `scripts/import_creator.py` — cached bulk downloads and creator discovery.
+- `mcp_server/server.py` — FastMCP tools: extract, search, list, read, classify, reindex, status.
+- `skills/reels-vault/` — Claude skill. It delegates to the repo scripts; there are no duplicate script copies.
+- `tests/test_output.py` — formatting, YAML, Obsidian save/search/classify, path-safety tests.
 
-## Stack
+## Commands
 
-Python 3.10+ (auto-detected), yt-dlp, Whisper, shazamio, ffmpeg, uv (optional, for fast venv setup)
+```bash
+./setup.sh
+./.venv/bin/python scripts/connect.py /path/to/ObsidianVault   # or --storage notion/both
+./.venv/bin/reels-vault "https://www.instagram.com/reel/ID/" --topic hooks
+./.venv/bin/python scripts/classify.py --list-unclassified
+./.venv/bin/python mcp_server/server.py --check
+./.venv/bin/python -m pip install -e ".[dev]"   # once, for tests
+./.venv/bin/python -m pytest -q
+```
 
 ## Status
 
-- Reel extraction: ✅ Working end-to-end (yt-dlp + Whisper + Shazam)
-- Smart metadata: ✅ Auto-detects niche, category, industry from content
-- Vault connection: ✅ Minimal foundation, no templates
-- Index building: ✅ Auto-grows as reels are saved (by niche, category, industry, creator)
-- Claude skill: ✅ Renamed to `reels-vault` (was `instagram-reel-extractor`)
-- MCP server: ✅ FastMCP server (extract_reel + search/list/read tools)
+- Extraction: working (yt-dlp, Playwright fallback, Whisper, Shazam).
+- Storage: Obsidian, Notion, both implemented; Notion requires a live token/database to verify.
+- Classification: pending by default; agent fills it via `classify.py` or MCP `classify_reel`.
+- Frames: Obsidian only; WebP, capped by `--frame-max-width` (default 1280).
+- Indexes: auto-built for Obsidian; Notion uses database views.
+- Install: `setup.sh` uses uv/pip, installs the MCP extra, and downloads Playwright Chromium.
 
-## Key Decisions
+## Decisions
 
-- Smart metadata (niche, category, industry) detected from transcript + caption via keyword matching — no API keys
-- Reels tagged with rich frontmatter (creator, topic, niche, category, industry, tags, source)
-- Vault grows organically — topic folders created on save, indexes auto-built
-- No pre-filled templates — clean foundation that gets smarter as you add reels
-- Setup auto-detects Python version, uses uv if available for faster venv creation
-- Whisper `base` model default (good balance of speed/accuracy)
-- 100% local — no cloud APIs required
+- Classification is agent-in-the-loop; no keyword matching, no provider integration.
+- `taxonomy.json` is optional and empty by default; values are freeform unless configured.
+- Re-saving the same source reuses the note/page (stable `source_id`), not a `-2` duplicate.
+- Secrets and local sessions live outside the repo; config is written `0600`.
+- All extraction is local; Notion stores the resulting notes when selected.

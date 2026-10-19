@@ -23,7 +23,6 @@ node_modules/
 Thumbs.db
 
 # Reels Vault specific
-.session/
 *.mp4
 *.wav
 *.jpg
@@ -43,3 +42,17 @@ dist/
 # Local tooling
 .agents/
 skills-lock.json
+.pytest_cache/
+
+# Local agent/tool output (never publish)
+.omx/
+brag-output-*/
+exports/
+bulk_urls.txt
+
+# Credentials and browser sessions
+.env
+*.session
+cookies*.json
+*instagram*cookies*.json
+notion-token*

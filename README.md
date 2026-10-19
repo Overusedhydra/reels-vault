@@ -12,10 +12,9 @@
   <img src="assets/gifs/01-claude-install.gif" alt="Install Reels Vault via Claude" width="600">
 </p>
 
-A local-first pipeline that extracts transcripts, music, and metadata from any
-Instagram reel, then organizes them into your Obsidian vault — tagged by
-**topic** and **creator** so you can search across hundreds of reels from
-hundreds of creators.
+A local-first pipeline that extracts transcripts, music, frames, and metadata
+from any Instagram reel, then organizes them into **Obsidian, Notion, or both** —
+tagged by topic and creator so you can search across hundreds of reels.
 
 The idea: instead of saving scattered bookmarks, you build a real library.
 *"What do 50 creators say about hooks?"* → one search.
@@ -25,9 +24,10 @@ Instagram Reel → Download → Transcribe → Identify Music → File by Topic 
 ```
 
 - **Extract** video, transcript, metadata, and music from any public reel
-- **Organize** in your own Obsidian vault — grouped by topic, not dumped in a pile
+- **Organize** in Obsidian, Notion, or both — grouped by topic, not dumped in a pile
+- **Classify with your AI** — the agent that saves a reel fills in niche, category, and industry
 - **Connect** to Claude/Cursor via MCP so your AI can search your reels
-- **No cloud, no paid APIs** — runs entirely on your machine (Instagram cookies may be needed for downloads; see Limitations)
+- **No cloud, no paid APIs** — extraction runs on your machine (Instagram cookies may be needed for downloads; see Limitations)
 
 ---
 
@@ -87,7 +87,7 @@ curl -fsSL https://raw.githubusercontent.com/Overusedhydra/reels-vault/main/inst
 > *"Save this reel: https://www.instagram.com/reels/ABC123/"*
 
 That's it. Claude downloads it, transcribes it, finds the music, and files it
-into your Obsidian vault. No commands. No copy-pasting.
+into your configured storage. No commands. No copy-pasting.
 
 <p align="center">
   <img src="assets/gifs/02-claude-extract.gif" alt="Claude extracts a reel" width="600">
@@ -132,8 +132,8 @@ cd ~/reels-vault
 curl -fsSL https://raw.githubusercontent.com/Overusedhydra/reels-vault/main/install.sh | bash
 ```
 
-This clones the repo, installs all dependencies, and asks where your Obsidian
-vault is. Takes about 2 minutes the first time.
+This clones the repo, installs all dependencies, and asks whether reels should
+live in Obsidian, Notion, or both. Takes about 2 minutes the first time.
 
 ### 2. Connect Claude Desktop
 
@@ -142,20 +142,29 @@ Now Claude can use Reels Vault — paste a reel link and it saves everything.
 
 ### 3. Your vault organizes itself
 
-Every extracted reel gets a frontmatter label at the top:
+Every extracted reel gets valid YAML frontmatter:
 
 ```yaml
 ---
-creator: "Alex Hormozi"
+creator: Alex Hormozi
 handle: hormozi
 topic: content-creation
-tags: [ads, hooks]
+niche: unclassified
+category: unclassified
+industry: unclassified
+classification: pending
+tags:
+  - ads
+  - hooks
 source: https://www.instagram.com/reels/ABC123/
+source_id: abc123
 extracted: 2026-06-29
 ---
 ```
 
-…so Obsidian can group and filter them automatically. Your vault structure:
+The note starts as `classification: pending`; the AI agent that called the tool
+then writes the final niche/category/industry with `scripts/classify.py`.
+Your Obsidian structure:
 
 <p align="center">
   <img src="assets/gifs/03-obsidian-metadata.gif" alt="Obsidian note with metadata" width="600">
@@ -164,14 +173,15 @@ extracted: 2026-06-29
 ```
 Your Vault/
   Reel Vault/
-    content-creation/      ← reels grouped by topic
-      hormozi-reel-2026-06-29.md
-      ali-abdaal-reel-2026-06-29.md
-    marketing/
-      garyvee-reel-2026-06-29.md
-    topics/                ← cross-creator notes (Hooks, Scripting, ...)
-    creators/              ← per-creator profiles
-    recipes/               ← copy-paste formulas
+    Reels/
+      content-creation/    ← reels grouped by topic
+        hormozi-reel-2026-02-04-abc123.md
+        frames/            ← optional WebP stills
+      marketing/
+        garyvee-reel-2026-02-04-def456.md
+    index/                 ← auto-built niche/category/industry/topic indexes
+    Creators/              ← per-creator pages
+    Index.md               ← Open in Obsidian for the Dataview overview
 ```
 
 <p align="center">
@@ -179,7 +189,12 @@ Your Vault/
 </p>
 
 Install the [Dataview](https://github.com/blacksmithgu/obsidian-dataview)
-plugin in Obsidian and the built-in index/queries light up automatically.
+plugin in Obsidian to use the generated `Index.md` dashboard.
+
+Each note can embed **key frames** — WebP stills pulled every
+`--frame-interval` seconds, capped at `--frame-max-width` pixels (default
+1280), under a `Visual Frames` heading. Skip them with `--no-frames`.
+Notion-only storage skips frames because Notion has no matching image workflow.
 
 ### 4. Let Claude do it for you (recommended — no terminal!)
 
@@ -217,23 +232,69 @@ saved (*"What do creators say about hooks?"*).
 > (both times). For the last line, use the `Reel Vault` folder that
 > `connect.py` created inside your Obsidian vault.
 
-Once it's connected, Claude can `extract_reel` (save a new reel), `search_reels`,
-`list_topics`, `list_creators`, `read_note`, and `vault_status` — all by itself.
+Once it's connected, Claude can `extract_reel`, `search_reels`, `list_topics`,
+`list_creators`, `read_note`, `classify_reel`, `list_unclassified`, `reindex`,
+and `vault_status` — all by itself.
 
 > Prefer doing it by hand? The `extract_reel.py` command in step 2 above always
 > works without any of this.
 
 ---
 
+## Notion, Obsidian, or Both
+
+`connect.py` stores one `storage` setting: `obsidian`, `notion`, or `both`.
+
+```bash
+# Obsidian only
+python3 scripts/connect.py /path/to/your/ObsidianVault
+
+# Notion only (creates a database under the parent page)
+python3 scripts/connect.py --storage notion \
+  --token "$NOTION_TOKEN" --parent-page-id "https://www.notion.so/..."
+
+# Both
+python3 scripts/connect.py --storage both /path/to/your/ObsidianVault \
+  --token "$NOTION_TOKEN" --parent-page-id "https://www.notion.so/..."
+```
+
+The Notion integration must be shared with the parent page. The database is
+created automatically; pass `--database-id` to reuse an existing one. Tokens
+are stored in `~/.config/reels-vault/config.json` with `0600` permissions.
+
+## Classification
+
+Extraction deliberately leaves classification pending. The AI agent that saved
+the reel reads the transcript/caption and submits its own labels:
+
+```bash
+python3 scripts/classify.py --source "https://www.instagram.com/reel/ABC123/" \
+  --metadata-json '{"niche":"business","category":"marketing","industry":"education","tags":["ads"]}'
+
+python3 scripts/classify.py --list-unclassified
+```
+
+`taxonomy.json` is optional. Create it only if you want to restrict values
+(`cp taxonomy.example.json ~/.config/reels-vault/taxonomy.json`); otherwise
+freeform labels are accepted. In both-storage mode the same metadata is written
+to Obsidian and the matching Notion page.
+
 ## Output Example
 
 ```markdown
 ---
-creator: "Alex Hormozi"
+creator: Alex Hormozi
 handle: hormozi
 topic: content-creation
-tags: [ads, hooks]
+niche: unclassified
+category: unclassified
+industry: unclassified
+classification: pending
+tags:
+  - ads
+  - hooks
 source: https://www.instagram.com/reels/ABC123/
+source_id: abc123
 extracted: 2026-06-29
 ---
 
@@ -246,6 +307,10 @@ Here's how to take a company's ads from this to this...
 [00:00] Here's how to take a company's ads from this to this.
 [00:02] So ads are made up of three parts.
 [00:03] Hook, meat, CTA.
+
+## Visual Frames
+![[Reels/content-creation/frames/hormozi-reel-2026-02-04-abc123/frame-00-00-05.000.webp]]
+![[Reels/content-creation/frames/hormozi-reel-2026-02-04-abc123/frame-00-00-10.000.webp]]
 ```
 
 ## Whisper Models
@@ -264,12 +329,13 @@ Here's how to take a company's ads from this to this...
 
 - **Python** 3.10+ (enforced by `setup.sh`)
 - **ffmpeg** (auto-installed on macOS/Linux via Homebrew/apt)
-- **yt-dlp**, **Whisper**, **shazamio**, **Playwright** — all pip-installed by `setup.sh`
+- **yt-dlp**, **Whisper**, **shazamio**, **Playwright**, **PyYAML** — installed by `setup.sh`
 - ~1 GB disk for the Whisper `base` model
 
 **macOS / Linux:** run `./setup.sh`.
 **Windows:** install [Python](https://python.org), [ffmpeg](https://ffmpeg.org/download.html),
-then `pip install -r requirements.txt` inside a venv.
+then `pip install -e ".[mcp]"` inside a venv (or `pip install -r requirements.txt`
+for the runtime dependencies only).
 
 ## Limitations
 
