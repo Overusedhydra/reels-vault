@@ -9,8 +9,10 @@
 </p>
 
 <p align="center">
-  <img src="assets/gifs/01-claude-install.gif" alt="Install Reels Vault via Claude" width="600">
+  <a href="https://github.com/Overusedhydra/reels-vault/raw/main/assets/demo.mp4"><img src="assets/demo.gif" alt="Reels Vault demo — ask Claude to install, paste a reel link, and watch it get transcribed, tagged, and filed into your vault" width="800"></a>
 </p>
+
+<p align="center"><em>Ask Claude to install it → paste a reel link → it's transcribed, tagged by creator &amp; topic, and filed into your vault.</em></p>
 
 A local-first pipeline that extracts transcripts, music, frames, and metadata
 from any Instagram reel, then organizes them into **Obsidian, Notion, or both** —
@@ -52,7 +54,7 @@ Now just talk to Claude — no JSON to edit, no server to configure:
 > *"Save this reel: https://www.instagram.com/reels/ABC123/"*
 > *"What do creators say about hooks?"*
 
-The skill finds your install automatically (via the path `connect.py` records)
+The skill finds your install automatically (via the path `reels-vault-connect` records)
 and runs the same CLI under the hood. For other MCP clients (Claude Desktop,
 Cursor, Continue), use the MCP server setup below instead.
 
@@ -70,8 +72,7 @@ curl -fsSL https://raw.githubusercontent.com/Overusedhydra/reels-vault/main/inst
 {
   "mcpServers": {
     "reels-vault": {
-      "command": "/Users/you/reels-vault/.venv/bin/python3",
-      "args": ["/Users/you/reels-vault/mcp_server/server.py"]
+      "command": "/Users/you/reels-vault/.venv/bin/reels-vault-mcp"
     }
   }
 }
@@ -88,10 +89,6 @@ curl -fsSL https://raw.githubusercontent.com/Overusedhydra/reels-vault/main/inst
 
 That's it. Claude downloads it, transcribes it, finds the music, and files it
 into your configured storage. No commands. No copy-pasting.
-
-<p align="center">
-  <img src="assets/gifs/02-claude-extract.gif" alt="Claude extracts a reel" width="600">
-</p>
 
 Want to search what you've saved? Just ask:
 
@@ -163,12 +160,8 @@ extracted: 2026-06-29
 ```
 
 The note starts as `classification: pending`; the AI agent that called the tool
-then writes the final niche/category/industry with `scripts/classify.py`.
+then writes the final niche/category/industry with `reels-vault-classify`.
 Your Obsidian structure:
-
-<p align="center">
-  <img src="assets/gifs/03-obsidian-metadata.gif" alt="Obsidian note with metadata" width="600">
-</p>
 
 ```
 Your Vault/
@@ -183,10 +176,6 @@ Your Vault/
     Creators/              ← per-creator pages
     Index.md               ← Open in Obsidian for the Dataview overview
 ```
-
-<p align="center">
-  <img src="assets/gifs/04-obsidian-transcript.gif" alt="Timestamped transcript" width="600">
-</p>
 
 Install the [Dataview](https://github.com/blacksmithgu/obsidian-dataview)
 plugin in Obsidian to use the generated `Index.md` dashboard.
@@ -212,49 +201,45 @@ saved (*"What do creators say about hooks?"*).
 1. Open Claude Desktop → **Settings → Developer → Edit Config**. (This opens a
    file called `claude_desktop_config.json`.)
 2. Paste in the block below.
-3. Replace the **3 paths** with your real ones (see the tip under the block).
+3. Replace the **path** with your real one (see the tip under the block).
 4. Save the file and fully quit + reopen Claude Desktop.
 
 ```jsonc
 {
   "mcpServers": {
     "reels-vault": {
-      "command": "/path/to/reels-vault/.venv/bin/python3",
-      "args": ["/path/to/reels-vault/mcp_server/server.py"],
-      "env": { "REELS_VAULT_PATH": "/path/to/your-vault/Reel Vault" }
+      "command": "/path/to/reels-vault/.venv/bin/reels-vault-mcp"
     }
   }
 }
 ```
 
-> **Tip — getting the paths right:** in the `reels-vault` folder, run `pwd` in
-> your terminal to print its full path. Swap that in for `/path/to/reels-vault`
-> (both times). For the last line, use the `Reel Vault` folder that
-> `connect.py` created inside your Obsidian vault.
+> **Tip — getting the path right:** in the `reels-vault` folder, run `pwd` in
+> your terminal to print its full path. Swap that in for `/path/to/reels-vault`.
 
 Once it's connected, Claude can `extract_reel`, `search_reels`, `list_topics`,
 `list_creators`, `read_note`, `classify_reel`, `list_unclassified`, `reindex`,
 and `vault_status` — all by itself.
 
-> Prefer doing it by hand? The `extract_reel.py` command in step 2 above always
+> Prefer doing it by hand? The `reels-vault` command in step 2 above always
 > works without any of this.
 
 ---
 
 ## Notion, Obsidian, or Both
 
-`connect.py` stores one `storage` setting: `obsidian`, `notion`, or `both`.
+`reels-vault-connect` stores one `storage` setting: `obsidian`, `notion`, or `both`.
 
 ```bash
 # Obsidian only
-python3 scripts/connect.py /path/to/your/ObsidianVault
+.venv/bin/reels-vault-connect /path/to/your/ObsidianVault
 
 # Notion only (creates a database under the parent page)
-python3 scripts/connect.py --storage notion \
+.venv/bin/reels-vault-connect --storage notion \
   --token "$NOTION_TOKEN" --parent-page-id "https://www.notion.so/..."
 
 # Both
-python3 scripts/connect.py --storage both /path/to/your/ObsidianVault \
+.venv/bin/reels-vault-connect --storage both /path/to/your/ObsidianVault \
   --token "$NOTION_TOKEN" --parent-page-id "https://www.notion.so/..."
 ```
 
@@ -268,10 +253,10 @@ Extraction deliberately leaves classification pending. The AI agent that saved
 the reel reads the transcript/caption and submits its own labels:
 
 ```bash
-python3 scripts/classify.py --source "https://www.instagram.com/reel/ABC123/" \
+.venv/bin/reels-vault-classify --source "https://www.instagram.com/reel/ABC123/" \
   --metadata-json '{"niche":"business","category":"marketing","industry":"education","tags":["ads"]}'
 
-python3 scripts/classify.py --list-unclassified
+.venv/bin/reels-vault-classify --list-unclassified
 ```
 
 `taxonomy.json` is optional. Create it only if you want to restrict values

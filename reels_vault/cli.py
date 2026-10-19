@@ -1,6 +1,6 @@
 """reels-vault CLI entry point."""
 
-from scripts.extract_reel import main
+from .extract import main
 
 if __name__ == "__main__":
     main()

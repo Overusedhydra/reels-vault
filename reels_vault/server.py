@@ -6,8 +6,7 @@ Exposes Obsidian and/or Notion storage to MCP clients.  Add it to your client:
     {
       "mcpServers": {
         "reels-vault": {
-          "command": "python3",
-          "args": ["/path/to/reels-vault/mcp_server/server.py"]
+          "command": "/path/to/reels-vault/.venv/bin/reels-vault-mcp"
         }
       }
     }
@@ -22,16 +21,9 @@ from __future__ import annotations
 import json
 import sys
 
-if __package__:
-    from scripts.config import load_config
-    from scripts.extract_reel import run_extraction
-    from scripts.storage import StorageManager, StorageError
-else:
-    from pathlib import Path
-    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-    from scripts.config import load_config
-    from scripts.extract_reel import run_extraction
-    from scripts.storage import StorageManager, StorageError
+from .config import load_config
+from .extract import run_extraction
+from .storage import StorageManager, StorageError
 
 
 def _manager() -> StorageManager:
@@ -188,8 +180,8 @@ def build_server():
         if topic.strip():
             updates["topic"] = topic.strip()
         try:
-            from scripts.classify import load_taxonomy, validate
-            from scripts.config import taxonomy_path
+            from .classify import load_taxonomy, validate
+            from .config import taxonomy_path
             updates = validate(updates, load_taxonomy(taxonomy_path()))
             results = _manager().update_metadata(ref, updates)
             _manager().reindex()

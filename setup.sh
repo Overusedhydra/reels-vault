@@ -72,6 +72,6 @@ chmod 700 "$HOME/.config/reels-vault/session" 2>/dev/null || true
 
 echo ""
 echo "Setup complete!"
-echo "  Connect storage: $VENV_DIR/bin/python $SCRIPT_DIR/scripts/connect.py"
+echo "  Connect storage: $VENV_DIR/bin/reels-vault-connect"
 echo "  Save a reel:     $VENV_DIR/bin/reels-vault <url> --topic <topic>"
 echo "  MCP server:      $VENV_DIR/bin/reels-vault-mcp --check"

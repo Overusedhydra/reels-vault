@@ -3,14 +3,11 @@
 from __future__ import annotations
 
 import os
-import sys
 import tempfile
 from pathlib import Path
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-
-from scripts.extract_reel import format_output  # noqa: E402
-from scripts.notes import (  # noqa: E402
+from reels_vault.extract import format_output  # noqa: E402
+from reels_vault.notes import (  # noqa: E402
     CLASSIFICATION_DONE,
     CLASSIFICATION_PENDING,
     dump_frontmatter,
@@ -18,7 +15,7 @@ from scripts.notes import (  # noqa: E402
     split_frontmatter,
     update_note_metadata,
 )
-from scripts.storage import StorageManager, StorageError  # noqa: E402
+from reels_vault.storage import StorageManager, StorageError  # noqa: E402
 
 
 def _metadata(**overrides):
@@ -169,7 +166,7 @@ class FakeNotionStore:
     """Minimal in-memory stand-in for the Notion HTTP client."""
 
     def __init__(self):
-        from scripts.storage import NOTION_PROPERTIES, NotionStore
+        from reels_vault.storage import NOTION_PROPERTIES, NotionStore
         self.store = NotionStore({"token": "test", "database_id": "a" * 32})
         self.store._schema = {
             name: {**definition, "type": next(iter(definition))}
@@ -260,7 +257,7 @@ def test_both_mode_classification_updates_matching_notion_page():
 
 
 def test_bulk_url_parsing_and_deduplication():
-    from scripts.bulk_import import read_urls, reel_id
+    from reels_vault.bulk_import import read_urls, reel_id
 
     text = """
     https://www.instagram.com/reel/AAA/?utm_source=x
@@ -276,7 +273,7 @@ def test_bulk_url_parsing_and_deduplication():
 
 
 def test_storage_backend_resolution():
-    from scripts.config import storage_backend
+    from reels_vault.config import storage_backend
 
     for var in ("REELS_STORAGE",):
         os.environ.pop(var, None)
@@ -291,7 +288,7 @@ def test_storage_backend_resolution():
 
 
 def test_creator_username_normalization():
-    from scripts.import_creator import clean_username, default_topic
+    from reels_vault.import_creator import clean_username, default_topic
 
     assert clean_username("@garyvee") == "garyvee"
     assert clean_username("https://www.instagram.com/garyvee/") == "garyvee"
@@ -299,7 +296,7 @@ def test_creator_username_normalization():
 
 
 def test_playwright_cookie_conversion():
-    from scripts.extract_reel import _netscape_cookie_file
+    from reels_vault.extract import _netscape_cookie_file
 
     with tempfile.TemporaryDirectory() as tmp:
         session = Path(tmp) / "state.json"

@@ -10,13 +10,8 @@ import subprocess
 import sys
 from pathlib import Path
 
-if __package__:
-    from . import config as config_mod
-    from .bulk_import import existing_in_vault, reel_id
-else:
-    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-    import config as config_mod
-    from bulk_import import existing_in_vault, reel_id
+from . import config as config_mod
+from .bulk_import import existing_in_vault, reel_id
 
 
 def clean_username(value: str) -> str:
@@ -119,9 +114,8 @@ def main() -> None:
     if not args.run_import or not urls:
         return
 
-    script = Path(__file__).with_name("bulk_import.py")
     cmd = [
-        sys.executable, str(script), str(out), "--topic", topic,
+        sys.executable, "-m", "reels_vault.bulk_import", str(out), "--topic", topic,
         "--whisper-model", args.whisper_model, "--delay", str(args.delay),
         "--storage", storage,
     ]

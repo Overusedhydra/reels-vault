@@ -17,28 +17,16 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
-if __package__:
-    from . import config as config_mod
-    from .notes import (
-        CLASSIFICATION_DONE,
-        CLASSIFICATION_PENDING,
-        UNCLASSIFIED,
-        note_base_name,
-        read_note,
-        slugify,
-        update_note_metadata,
-    )
-else:  # running as a script
-    import config as config_mod
-    from notes import (
-        CLASSIFICATION_DONE,
-        CLASSIFICATION_PENDING,
-        UNCLASSIFIED,
-        note_base_name,
-        read_note,
-        slugify,
-        update_note_metadata,
-    )
+from . import config as config_mod
+from .notes import (
+    CLASSIFICATION_DONE,
+    CLASSIFICATION_PENDING,
+    UNCLASSIFIED,
+    note_base_name,
+    read_note,
+    slugify,
+    update_note_metadata,
+)
 
 
 class StorageError(RuntimeError):
@@ -94,7 +82,7 @@ class ObsidianStore:
 
     def ensure(self) -> None:
         if not self.root:
-            raise StorageError("Obsidian is not connected. Run scripts/connect.py.")
+            raise StorageError("Obsidian is not connected. Run reels-vault-connect.")
         self.root.mkdir(parents=True, exist_ok=True)
         self.reels_dir.mkdir(parents=True, exist_ok=True)
         self.index_dir.mkdir(parents=True, exist_ok=True)
@@ -417,7 +405,7 @@ class NotionStore:
 
     def _request(self, method: str, path: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
         if not self.token:
-            raise StorageError("Notion token is missing. Set NOTION_TOKEN or rerun connect.py.")
+            raise StorageError("Notion token is missing. Set NOTION_TOKEN or rerun reels-vault-connect.")
         body = json.dumps(payload or {}).encode("utf-8") if method != "GET" else None
         req = urllib.request.Request(
             f"{NOTION_API}{path}",
@@ -448,11 +436,11 @@ class NotionStore:
 
     def ensure(self) -> None:
         if not self.token:
-            raise StorageError("Notion token is missing. Set NOTION_TOKEN or rerun connect.py.")
+            raise StorageError("Notion token is missing. Set NOTION_TOKEN or rerun reels-vault-connect.")
         if not self.database_id:
             if not self.parent_page_id:
                 raise StorageError(
-                    "Notion database is not configured. Run scripts/connect.py --storage notion."
+                    "Notion database is not configured. Run reels-vault-connect --storage notion."
                 )
             created = self._request("POST", "/databases", {
                 "parent": {"type": "page_id", "page_id": self.parent_page_id},

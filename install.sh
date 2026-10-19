@@ -43,13 +43,13 @@ chmod +x setup.sh
 echo ""
 echo "🔗 Connect storage (Obsidian, Notion, or both)."
 if [ -r /dev/tty ]; then
-    .venv/bin/python3 scripts/connect.py < /dev/tty || {
+    .venv/bin/reels-vault-connect < /dev/tty || {
         echo "   Connection skipped. Run later:"
-        echo "     cd \"$TARGET_DIR\" && .venv/bin/python3 scripts/connect.py"
+        echo "     cd \"$TARGET_DIR\" && .venv/bin/reels-vault-connect"
     }
 else
     echo "   No terminal available. Connect later:"
-    echo "     cd \"$TARGET_DIR\" && .venv/bin/python3 scripts/connect.py"
+    echo "     cd \"$TARGET_DIR\" && .venv/bin/reels-vault-connect"
 fi
 
 echo ""

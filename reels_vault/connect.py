@@ -2,9 +2,9 @@
 """Connect Reels Vault to Obsidian, Notion, or both.
 
 Examples:
-    python3 scripts/connect.py /path/to/ObsidianVault
-    python3 scripts/connect.py --storage notion --token "$NOTION_TOKEN" --parent PAGE_URL
-    python3 scripts/connect.py --storage both /path/to/ObsidianVault --parent PAGE_URL
+    reels-vault-connect /path/to/ObsidianVault
+    reels-vault-connect --storage notion --token "$NOTION_TOKEN" --parent PAGE_URL
+    reels-vault-connect --storage both /path/to/ObsidianVault --parent PAGE_URL
 """
 
 from __future__ import annotations
@@ -14,12 +14,8 @@ import os
 import sys
 from pathlib import Path
 
-if __package__:
-    from .config import config_path, load_config, save_config
-    from .storage import NotionStore, StorageError
-else:
-    from config import config_path, load_config, save_config
-    from storage import NotionStore, StorageError
+from .config import config_path, load_config, save_config
+from .storage import NotionStore, StorageError
 
 VAULT_FOLDER_NAME = "Reel Vault"
 INDEX_TEMPLATE = """---

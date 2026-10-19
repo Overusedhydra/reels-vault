@@ -24,9 +24,9 @@ dev = ["pytest>=8.0", "build>=1.2"]
 
 [project.scripts]
 reels-vault = "reels_vault.cli:main"
-reels-vault-classify = "scripts.classify:main"
-reels-vault-connect = "scripts.connect:main"
-reels-vault-mcp = "mcp_server.server:main"
+reels-vault-connect = "reels_vault.connect:main"
+reels-vault-classify = "reels_vault.classify:main"
+reels-vault-mcp = "reels_vault.server:main"
 
 [tool.setuptools.packages.find]
-include = ["reels_vault*", "scripts*", "mcp_server*"]
+include = ["reels_vault*"]

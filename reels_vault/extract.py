@@ -7,7 +7,7 @@ Classification is intentionally left to the calling AI agent.
 Notes are saved to Obsidian, Notion, or both.
 
 Usage:
-    python3 scripts/extract_reel.py <reel_url> --topic content-creation
+    reels-vault <reel_url> --topic content-creation
 """
 
 import sys
@@ -21,24 +21,16 @@ import asyncio
 import shutil
 from datetime import datetime, timezone
 
-if __package__:
-    from .notes import (
-        CLASSIFICATION_PENDING,
-        UNCLASSIFIED,
-        dump_frontmatter,
-        slugify,
-        source_id,
-        split_frontmatter,
-    )
-else:  # running as a script
-    from notes import (
-        CLASSIFICATION_PENDING,
-        UNCLASSIFIED,
-        dump_frontmatter,
-        slugify,
-        source_id,
-        split_frontmatter,
-    )
+from .config import load_config
+from .notes import (
+    CLASSIFICATION_PENDING,
+    UNCLASSIFIED,
+    dump_frontmatter,
+    slugify,
+    source_id,
+    split_frontmatter,
+)
+from .storage import StorageManager
 
 
 # ---------------------------------------------------------------------------
@@ -672,13 +664,6 @@ def run_extraction(url: str, whisper_model: str = "base", topic: str = "",
     The AI agent that calls this function is responsible for classification;
     the saved note starts with ``classification: pending``.
     """
-    if __package__:
-        from .storage import StorageManager
-        from .config import load_config
-    else:
-        from storage import StorageManager
-        from config import load_config
-
     def emit(message: str) -> None:
         if log:
             log(message)
@@ -763,7 +748,7 @@ def run_extraction(url: str, whisper_model: str = "base", topic: str = "",
             for error in errors:
                 emit(f"Warning: {error}")
         elif save:
-            errors.append("No storage backend is configured. Run scripts/connect.py.")
+            errors.append("No storage backend is configured. Run reels-vault-connect.")
 
         return {
             "url": source or url,

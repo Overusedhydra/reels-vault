@@ -31,11 +31,11 @@ If `$DIR` has no `.venv`, run its setup once:
 cd "$DIR" && ./setup.sh
 ```
 
-If storage is not configured yet, run `"$DIR/.venv/bin/python" "$DIR/scripts/connect.py"`
+If storage is not configured yet, run `"$DIR/.venv/bin/reels-vault-connect"`
 and let the user choose Obsidian, Notion, or both. Check with:
 
 ```bash
-"$DIR/.venv/bin/python" "$DIR/mcp_server/server.py" --check
+"$DIR/.venv/bin/reels-vault-mcp" --check
 ```
 
 ## Step 2 — Save and classify a reel
@@ -44,7 +44,7 @@ Save the reel first. Use `--json` when you need the full result, but the note is
 saved either way:
 
 ```bash
-"$DIR/.venv/bin/python" "$DIR/scripts/extract_reel.py" "<reel-url>" --topic "<topic>"
+"$DIR/.venv/bin/reels-vault" "<reel-url>" --topic "<topic>"
 ```
 
 - Pick a short, lowercase, hyphenated `--topic` from the content (e.g.
@@ -58,7 +58,7 @@ Then classify the new note using your own reading of the transcript, caption,
 and visuals. Do not ask another API and do not guess from the creator name:
 
 ```bash
-"$DIR/.venv/bin/python" "$DIR/scripts/classify.py" --source "<reel-url>" \
+"$DIR/.venv/bin/reels-vault-classify" --source "<reel-url>" \
   --metadata-json '{"niche":"business","category":"marketing","industry":"education","tags":["ads","hooks"]}'
 ```
 
@@ -73,7 +73,7 @@ Bulk mode downloads everything through one shared browser into a local cache,
 then runs extraction offline:
 
 ```bash
-"$DIR/.venv/bin/python" "$DIR/scripts/bulk_import.py" urls.txt --topic "<topic>"
+"$DIR/.venv/bin/python" -m reels_vault.bulk_import urls.txt --topic "<topic>"
 ```
 
 - `urls.txt` = one reel URL per line; duplicates and already-saved reels are skipped.
@@ -84,7 +84,7 @@ then runs extraction offline:
 ## Step 2c — Import recent reels from a creator
 
 ```bash
-"$DIR/.venv/bin/python" "$DIR/scripts/import_creator.py" "<creator>" --limit 25 --topic "<topic>" --import
+"$DIR/.venv/bin/python" -m reels_vault.import_creator "<creator>" --limit 25 --topic "<topic>" --import
 ```
 
 - `<creator>` can be `username`, `@username`, or a profile URL.

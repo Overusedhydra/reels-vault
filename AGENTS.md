@@ -6,25 +6,25 @@ or classification API keys.
 
 ## Architecture
 
-- `scripts/extract_reel.py` — yt-dlp/Playwright download, Whisper transcript, Shazam, frames, note formatting, and the CLI.
-- `scripts/storage.py` — `ObsidianStore`, `NotionStore`, and `StorageManager` for `obsidian`, `notion`, and `both`.
-- `scripts/notes.py` — safe YAML frontmatter, slugs, stable note names, metadata updates.
-- `scripts/classify.py` — agent classification CLI (`--note`/`--source`, `--list-unclassified`, `--reindex`).
-- `scripts/config.py` — config at `~/.config/reels-vault/config.json` (`0600`), sessions, taxonomy, env overrides.
-- `scripts/connect.py` — one-time Obsidian/Notion setup, including Notion database creation.
-- `scripts/bulk_import.py`, `scripts/import_creator.py` — cached bulk downloads and creator discovery.
-- `mcp_server/server.py` — FastMCP tools: extract, search, list, read, classify, reindex, status.
-- `skills/reels-vault/` — Claude skill. It delegates to the repo scripts; there are no duplicate script copies.
+- `reels_vault/extract.py` — yt-dlp/Playwright download, Whisper transcript, Shazam, frames, note formatting, and the CLI.
+- `reels_vault/storage.py` — `ObsidianStore`, `NotionStore`, and `StorageManager` for `obsidian`, `notion`, and `both`.
+- `reels_vault/notes.py` — safe YAML frontmatter, slugs, stable note names, metadata updates.
+- `reels_vault/classify.py` — agent classification CLI (`--note`/`--source`, `--list-unclassified`, `--reindex`).
+- `reels_vault/config.py` — config at `~/.config/reels-vault/config.json` (`0600`), sessions, taxonomy, env overrides.
+- `reels_vault/connect.py` — one-time Obsidian/Notion setup, including Notion database creation.
+- `reels_vault/bulk_import.py`, `reels_vault/import_creator.py` — cached bulk downloads and creator discovery.
+- `reels_vault/server.py` — FastMCP tools: extract, search, list, read, classify, reindex, status.
+- `skills/reels-vault/` — Claude skill. It delegates to the installed package; there are no duplicate script copies.
 - `tests/test_output.py` — formatting, YAML, Obsidian save/search/classify, path-safety tests.
 
 ## Commands
 
 ```bash
 ./setup.sh
-./.venv/bin/python scripts/connect.py /path/to/ObsidianVault   # or --storage notion/both
+./.venv/bin/reels-vault-connect /path/to/ObsidianVault   # or --storage notion/both
 ./.venv/bin/reels-vault "https://www.instagram.com/reel/ID/" --topic hooks
-./.venv/bin/python scripts/classify.py --list-unclassified
-./.venv/bin/python mcp_server/server.py --check
+./.venv/bin/reels-vault-classify --list-unclassified
+./.venv/bin/reels-vault-mcp --check
 ./.venv/bin/python -m pip install -e ".[dev]"   # once, for tests
 ./.venv/bin/python -m pytest -q
 ```
@@ -33,7 +33,7 @@ or classification API keys.
 
 - Extraction: working (yt-dlp, Playwright fallback, Whisper, Shazam).
 - Storage: Obsidian, Notion, both implemented; Notion requires a live token/database to verify.
-- Classification: pending by default; agent fills it via `classify.py` or MCP `classify_reel`.
+- Classification: pending by default; agent fills it via `reels-vault-classify` or MCP `classify_reel`.
 - Frames: Obsidian only; WebP, capped by `--frame-max-width` (default 1280).
 - Indexes: auto-built for Obsidian; Notion uses database views.
 - Install: `setup.sh` uses uv/pip, installs the MCP extra, and downloads Playwright Chromium.

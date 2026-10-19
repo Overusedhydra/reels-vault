@@ -2,7 +2,7 @@
 """Bulk-import Instagram Reel URLs into the configured storage backend.
 
 Two phases: one shared Playwright browser downloads every reel into a local
-cache, then each cached file is run through extract_reel.py offline (Whisper,
+cache, then each cached file is run through the extraction pipeline offline (Whisper,
 Shazam, frames, save).  The child process reads the same config, so it writes
 to Obsidian, Notion, or both without duplicating that logic here.
 """
@@ -18,13 +18,8 @@ import sys
 import time
 from pathlib import Path
 
-if __package__:
-    from . import config as config_mod
-    from .extract_reel import _IG_UA, _download_via_playwright, _load_playwright_cookies
-else:
-    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-    import config as config_mod
-    from extract_reel import _IG_UA, _download_via_playwright, _load_playwright_cookies
+from . import config as config_mod
+from .extract import _IG_UA, _download_via_playwright, _load_playwright_cookies
 
 REEL_ID_RE = re.compile(r"instagram\.com/(?:[\w.-]+/)?(?:reel|reels|p)/([A-Za-z0-9_-]+)")
 URL_RE = re.compile(
@@ -135,12 +130,11 @@ def process_all(urls: list[str], cache_dir: str, topic: str, args,
         todo.append(url)
 
     print(f"Process phase: {len(todo)} to extract, {skipped} already stored", file=sys.stderr)
-    script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "extract_reel.py")
     for i, url in enumerate(todo, 1):
         rid = reel_id(url)
         mp4 = os.path.join(cache_dir, f"{rid}.mp4")
         print(f"[{i}/{len(todo)}] {rid}", file=sys.stderr, end="", flush=True)
-        cmd = [sys.executable, script, mp4, "--topic", topic,
+        cmd = [sys.executable, "-m", "reels_vault.extract", mp4, "--topic", topic,
                "--whisper-model", args.whisper_model, "--downloader", "auto"]
         if args.storage:
             cmd += ["--storage", args.storage]
@@ -186,7 +180,7 @@ def main() -> None:
     storage = args.storage or config_mod.storage_backend(cfg)
     vault = config_mod.vault_path(cfg) if storage in ("obsidian", "both") else ""
     if storage in ("obsidian", "both") and (not vault or not os.path.isdir(vault)):
-        sys.exit("Obsidian is not connected. Run scripts/connect.py first.")
+        sys.exit("Obsidian is not connected. Run reels-vault-connect first.")
     session_file = args.session_file or config_mod.session_paths(cfg)["playwright"]
 
     urls = read_urls(args.source)

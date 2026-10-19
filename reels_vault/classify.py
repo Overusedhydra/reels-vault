@@ -4,7 +4,7 @@
 Extraction never guesses a niche/category/industry.  The skill or MCP client
 reads the note, decides the metadata, and calls this command:
 
-    python3 scripts/classify.py --note "Reels/hooks/foo.md" \
+    reels-vault-classify --note "Reels/hooks/foo.md" \
         --metadata-json '{"niche":"marketing","category":"tutorial","industry":"creator-economy","tags":["hooks"]}'
 
 Using ``--list-unclassified`` lets an agent fetch the pending queue.
@@ -19,14 +19,9 @@ import sys
 from pathlib import Path
 from typing import Any
 
-if __package__:
-    from .config import load_config, taxonomy_path
-    from .notes import CLASSIFICATION_DONE, UNCLASSIFIED
-    from .storage import StorageManager, StorageError
-else:
-    from config import load_config, taxonomy_path
-    from notes import CLASSIFICATION_DONE, UNCLASSIFIED
-    from storage import StorageManager, StorageError
+from .config import load_config, taxonomy_path
+from .notes import CLASSIFICATION_DONE, UNCLASSIFIED
+from .storage import StorageManager, StorageError
 
 FIELDS = ("niche", "category", "industry")
 TAXONOMY_FIELDS = {

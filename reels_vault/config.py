@@ -10,7 +10,7 @@ Storage backends
 ----------------
 ``storage`` is one of ``obsidian``, ``notion``, or ``both``.  Obsidian uses a
 normal folder inside the user's vault.  Notion uses a database created by
-``scripts/connect.py`` (or an existing database the user points us at).
+``reels-vault-connect`` (or an existing database the user points us at).
 """
 
 from __future__ import annotations
@@ -132,5 +132,5 @@ def taxonomy_path(config: dict[str, Any] | None = None) -> str:
 
 
 def install_dir() -> str:
-    """Repository/install directory containing ``scripts/``."""
+    """Repository/install directory containing the ``reels_vault`` package."""
     return str(Path(__file__).resolve().parent.parent)
