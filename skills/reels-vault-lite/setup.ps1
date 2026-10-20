@@ -5,6 +5,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $BinDir = Join-Path $env:LOCALAPPDATA "ReelsVault\bin"
 $NemoBin = Join-Path $env:LOCALAPPDATA "Programs\NeMoSpeech\bin"
@@ -42,7 +43,7 @@ if (-not $FFmpeg) {
 if (-not $YtDlp) {
     if ($Install) {
         Write-Host "Installing yt-dlp to $BinDir"
-        Invoke-WebRequest -Uri "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe" -OutFile (Join-Path $BinDir "yt-dlp.exe")
+        Invoke-WebRequest -UseBasicParsing -Uri "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe" -OutFile (Join-Path $BinDir "yt-dlp.exe")
         $YtDlp = Join-Path $BinDir "yt-dlp.exe"
         if (-not (Test-Path $YtDlp)) {
             Write-Host "yt-dlp install did not produce $YtDlp"
@@ -60,6 +61,9 @@ if (-not $Nemo) {
         $Installer = Join-Path $env:TEMP "nemo-speech-install.ps1"
         try {
             Invoke-WebRequest -UseBasicParsing -Uri "https://github.com/NVIDIA/NeMo-Speech.cpp/raw/main/scripts/install.ps1" -OutFile $Installer
+            if (-not (Test-Path $Installer)) {
+                throw "nemo-speech installer download failed"
+            }
             & $Installer -BinaryOnly
         } finally {
             Remove-Item -Force -ErrorAction SilentlyContinue $Installer

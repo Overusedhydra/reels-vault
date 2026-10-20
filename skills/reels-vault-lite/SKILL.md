@@ -74,7 +74,8 @@ python3 "$SKILL_DIR/scripts/reels_vault_lite.py" save "<reel-url>" --topic "<top
 ```
 
 The command prints the saved note path. Add `--json` for a machine-readable
-result. Useful flags:
+result. Reels with no audio stream are saved as visual-only notes with an empty
+transcript and `(no speech detected)` in the transcript section. Useful flags:
 
 - `--cookies-from chrome` (or `safari`, `firefox`, `edge`) when Instagram
   blocks the download; `--cookies /path/cookies.txt` also works.
@@ -85,8 +86,10 @@ result. Useful flags:
   European languages. The default `nemotron-3.5` is multilingual.
 
 Notes are written to `Reels/<topic>/<handle>-reel-<date>-<shortcode>.md`.
-Re-saving the same source reuses the existing note. `index/`, `Creators/`, and
-`Index.md` are maintained automatically.
+Re-saving the same case-sensitive shortcode reuses the existing note, merges
+`topic`/`topics`/tags, and preserves manually edited sections. Indexes live under
+`index/topics`, `index/niches`, `index/categories`, and `index/industries`;
+creator pages live under `Creators/`, and `Index.md` is the vault dashboard.
 
 ## Step 4 — Classify the new note
 

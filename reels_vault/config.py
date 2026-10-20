@@ -41,6 +41,11 @@ def load_config() -> dict[str, Any]:
     if not CONFIG_FILE.exists():
         return {}
     try:
+        if CONFIG_FILE.stat().st_mode & 0o077:
+            os.chmod(CONFIG_FILE, 0o600)
+    except OSError:
+        pass
+    try:
         with CONFIG_FILE.open(encoding="utf-8") as fh:
             data = json.load(fh)
         return data if isinstance(data, dict) else {}
@@ -51,15 +56,20 @@ def load_config() -> dict[str, Any]:
 def save_config(config: dict[str, Any]) -> None:
     """Persist config, keeping credentials readable only by the user."""
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    tmp = CONFIG_FILE.with_suffix(".json.tmp")
-    with tmp.open("w", encoding="utf-8") as fh:
-        json.dump(config, fh, indent=2, ensure_ascii=False)
-        fh.write("\n")
-    os.replace(tmp, CONFIG_FILE)
     try:
-        os.chmod(CONFIG_FILE, 0o600)
+        os.chmod(CONFIG_DIR, 0o700)
     except OSError:
         pass
+    tmp = CONFIG_FILE.with_suffix(".json.tmp")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        json.dump(config, fh, indent=2, ensure_ascii=False)
+        fh.write("\n")
+    try:
+        os.chmod(tmp, 0o600)
+    except OSError:
+        pass
+    os.replace(tmp, CONFIG_FILE)
 
 
 def config_path() -> str:

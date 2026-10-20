@@ -4,12 +4,13 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import re
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 
 import yaml
 
@@ -45,11 +46,35 @@ def extract_shortcode(url: str) -> str:
 
 
 def source_id(url: str) -> str:
-    """A stable, compact identifier for a source URL."""
+    """A stable identifier for a source URL.
+
+    Instagram shortcodes are case-sensitive, so they are preserved verbatim.
+    An empty source returns an empty id instead of a shared hash of ``""``.
+    """
     shortcode = extract_shortcode(url)
     if shortcode:
-        return shortcode.lower()
-    return hashlib.sha1((url or "").encode("utf-8")).hexdigest()[:10]
+        return shortcode
+    url = (url or "").strip()
+    if not url:
+        return ""
+    return hashlib.sha1(url.encode("utf-8")).hexdigest()[:10]
+
+
+def normalize_source(url: str) -> str:
+    """Canonical identity for an Instagram URL; other URLs are trimmed."""
+    shortcode = extract_shortcode(url)
+    if shortcode:
+        return f"instagram:{shortcode}"
+    return (url or "").strip().rstrip("/")
+
+
+def same_source(left: str, right: str, left_id: str = "", right_id: str = "") -> bool:
+    """Compare sources by shortcode when possible, else by normalized URL."""
+    lid = left_id or source_id(left)
+    rid = right_id or source_id(right)
+    if lid and rid:
+        return lid == rid
+    return bool(left or right) and normalize_source(left) == normalize_source(right)
 
 
 def note_base_name(metadata: dict[str, Any], url: str = "") -> str:
@@ -61,6 +86,9 @@ def note_base_name(metadata: dict[str, Any], url: str = "") -> str:
     if not upload_date:
         upload_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     sid = source_id(url or metadata.get("url", ""))
+    if not sid:
+        payload = json.dumps(metadata, sort_keys=True, default=str, ensure_ascii=False)
+        sid = hashlib.sha1(payload.encode("utf-8")).hexdigest()[:10]
     return f"{handle}-reel-{upload_date}-{sid}"
 
 
@@ -113,6 +141,60 @@ def _atomic_write(path: Path, text: str) -> None:
     finally:
         if os.path.exists(tmp):
             os.unlink(tmp)
+
+
+def atomic_write_bytes(path: Path, data: bytes) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(prefix=f".{path.name}.", dir=str(path.parent))
+    try:
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(data)
+        os.replace(tmp, path)
+    finally:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+
+
+def section_map(body: str) -> dict[str, str]:
+    """Split a Markdown body into ``heading -> section text`` (heading included)."""
+    sections: dict[str, str] = {}
+    matches = list(re.finditer(r"^## (.+)$", body or "", re.M))
+    for index, match in enumerate(matches):
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(body)
+        sections[match.group(1).strip()] = body[match.start():end].rstrip() + "\n"
+    return sections
+
+
+def preserve_sections(old_body: str, new_body: str,
+                      generated: Iterable[str] = ()) -> str:
+    """Keep user-authored sections that a re-extraction did not regenerate.
+
+    Generated section names are replaced by the new extraction. Every other
+    section is kept, so manual notes and ``KEY:`` annotations survive re-saves.
+    """
+    generated = {name.lower() for name in generated}
+    old = section_map(old_body)
+    new = section_map(new_body)
+    if not new:
+        return new_body
+    new_names = {name.lower() for name in new}
+    # A generated Key Frame section is instructions; keep manual KEY lines.
+    for name, text in new.items():
+        if name.lower() != "key frame":
+            continue
+        old_text = next((value for key, value in old.items() if key.lower() == "key frame"), "")
+        keys = [line for line in old_text.splitlines() if line.strip().upper().startswith("KEY:")]
+        if keys:
+            heading, _, rest = text.partition("\n")
+            new[name] = heading + "\n" + "\n".join(keys) + "\n" + rest.lstrip("\n")
+    additions = [
+        text for name, text in old.items()
+        if name.lower() not in generated and name.lower() not in new_names
+    ]
+    rebuilt = "\n".join(text.rstrip() for text in new.values()).rstrip() + "\n"
+    if additions:
+        rebuilt += "\n" + "\n\n".join(text.rstrip() for text in additions).rstrip() + "\n"
+    return rebuilt
 
 
 def update_body_metadata(body: str, updates: dict[str, Any]) -> str:

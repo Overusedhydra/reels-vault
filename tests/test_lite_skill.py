@@ -44,7 +44,7 @@ def test_normalise_metadata_hashtags_and_source_id():
         },
         "https://www.instagram.com/reel/ABC123/",
     )
-    assert metadata["source_id"] == "abc123"
+    assert metadata["source_id"] == "ABC123"
     assert metadata["handle"] == "testcreator"
     assert metadata["tags"] == ["hooks", "ads"]
 
@@ -142,6 +142,48 @@ def test_configure_uses_reel_vault_subfolder(tmp_path, monkeypatch):
     assert (vault / "Reel Vault" / "Reels").is_dir()
 
 
+def test_configure_does_not_copy_full_config_secrets(tmp_path, monkeypatch):
+    vault = tmp_path / "Obsidian"
+    vault.mkdir()
+    (vault / ".obsidian").mkdir()
+    full = tmp_path / "full.json"
+    full.write_text('{"notion":{"token":"secret"},"vault_path":"/old"}', encoding="utf-8")
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    monkeypatch.setattr(lite, "full_config_file", lambda: full)
+    monkeypatch.delenv("REELS_VAULT_PATH", raising=False)
+
+    assert lite.main(["configure", "--vault", str(vault)]) == 0
+    saved = lite.load_json(lite.config_file())
+    assert "notion" not in saved
+
+
+def test_save_without_audio_writes_visual_only_note(tmp_path, monkeypatch, capsys):
+    yt_dlp, _, _ = _fake_tools(tmp_path)
+    silent_ffmpeg = tmp_path / "silent-ffmpeg"
+    silent_ffmpeg.write_text(
+        "#!/usr/bin/env python3\n"
+        "import sys\n"
+        "sys.stderr.write('Output file does not contain any stream\\n')\n"
+        "raise SystemExit(1)\n",
+        encoding="utf-8",
+    )
+    silent_ffmpeg.chmod(0o755)
+    monkeypatch.setenv("REELS_VAULT_LITE_YTDLP", str(yt_dlp))
+    monkeypatch.setenv("REELS_VAULT_LITE_FFMPEG", str(silent_ffmpeg))
+    monkeypatch.setenv("NEMO_SPEECH_BIN", str(tmp_path / "missing-nemo"))
+    vault = tmp_path / "vault"
+    vault.mkdir()
+
+    assert lite.main([
+        "save", "https://www.instagram.com/reel/ABC123/",
+        "--vault", str(vault), "--topic", "hooks", "--frames", "0", "--json",
+    ]) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result["language"] == "unknown"
+    assert result["transcript"] == ""
+    assert "no speech detected" in (vault / result["ref"]).read_text(encoding="utf-8")
+
+
 def test_save_classify_resave_and_search(tmp_path, monkeypatch, capsys):
     yt_dlp, ffmpeg, nemo = _fake_tools(tmp_path)
     monkeypatch.setenv("REELS_VAULT_LITE_YTDLP", str(yt_dlp))
@@ -167,7 +209,7 @@ def test_save_classify_resave_and_search(tmp_path, monkeypatch, capsys):
     frontmatter, body = lite.read_note(note)
     assert frontmatter["creator"] == "Test Creator"
     assert frontmatter["classification"] == "pending"
-    assert frontmatter["source_id"] == "abc123"
+    assert frontmatter["source_id"] == "ABC123"
     assert result["language"] == "en"
     assert "This is a test transcript" in body
 
@@ -193,8 +235,8 @@ def test_save_classify_resave_and_search(tmp_path, monkeypatch, capsys):
     assert "- **Niche:** business" in body
     assert "promotion" in frontmatter["tags"]
     marker = f"[[{note.stem}]]"
-    assert marker not in (vault / "index" / "unclassified.md").read_text(encoding="utf-8")
-    assert marker in (vault / "index" / "business.md").read_text(encoding="utf-8")
+    assert marker not in (vault / "index" / "niches" / "unclassified.md").read_text(encoding="utf-8")
+    assert marker in (vault / "index" / "niches" / "business.md").read_text(encoding="utf-8")
 
     frontmatter, body = lite.read_note(note)
     frontmatter["classification"] = "done"
@@ -212,9 +254,11 @@ def test_save_classify_resave_and_search(tmp_path, monkeypatch, capsys):
         ]
     ) == 0
     capsys.readouterr()
-    frontmatter, _ = lite.read_note(note)
+    frontmatter, body = lite.read_note(note)
     assert frontmatter["classification"] == "done"
     assert frontmatter["category"] == "marketing"
+    assert "- **Niche:** business" in body
+    assert "- **Classification:** done" in body
 
     assert lite.main(["search", "transcript", "--vault", str(vault), "--json"]) == 0
     results = json.loads(capsys.readouterr().out)

@@ -102,7 +102,8 @@ Search through the MCP tools when available (`search_reels`, `list_topics`,
 `list_creators`, `read_note`). Otherwise:
 
 - **Obsidian:** read `vault_path` from `~/.config/reels-vault/config.json`,
-  then search `Reels/**/*.md` or browse `index/` and `Creators/`.
+  then search `Reels/**/*.md` or browse `index/topics|niches|categories|industries/`
+  and `Creators/`.
 - **Notion:** use the MCP search tools, or open the Reel Vault database views.
 - **Read a note:** open the matching ref and summarize the transcript.
 

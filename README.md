@@ -196,10 +196,13 @@ tags:
   - ads
   - hooks
 source: https://www.instagram.com/reels/ABC123/
-source_id: abc123
+source_id: ABC123
 extracted: 2026-06-29
 ---
 ```
+
+`source_id` preserves the case-sensitive Instagram shortcode, so it is the
+stable identity used for re-saves and duplicate detection.
 
 The note starts as `classification: pending`; the AI agent that called the tool
 then writes the final niche/category/industry with `reels-vault-classify`.
@@ -210,11 +213,15 @@ Your Vault/
   Reel Vault/
     Reels/
       content-creation/    ← reels grouped by topic
-        hormozi-reel-2026-02-04-abc123.md
+        hormozi-reel-2026-02-04-ABC123.md
         frames/            ← optional WebP stills
       marketing/
-        garyvee-reel-2026-02-04-def456.md
-    index/                 ← auto-built niche/category/industry/topic indexes
+        garyvee-reel-2026-02-04-DEF456.md
+    index/
+      topics/              ← auto-built indexes, namespaced by kind
+      niches/
+      categories/
+      industries/
     Creators/              ← per-creator pages
     Index.md               ← Open in Obsidian for the Dataview overview
 ```
@@ -306,6 +313,23 @@ the reel reads the transcript/caption and submits its own labels:
 freeform labels are accepted. In both-storage mode the same metadata is written
 to Obsidian and the matching Notion page.
 
+## Repairing an existing vault
+
+Older vaults can contain duplicate saves, stale frame references from an
+earlier folder layout, missing `source_id` values, and index files that collide
+between topics and niches. Run a dry-run first:
+
+```bash
+.venv/bin/reels-vault-repair
+.venv/bin/reels-vault-repair --apply
+```
+
+The repair keeps the richest note per shortcode, merges manual sections and
+frames, regenerates frame links from the files on disk, moves duplicates to
+`_archive/reels-vault-repair-<timestamp>/duplicates/`, backs up every modified
+note, and rebuilds the namespaced indexes. Pass `--vault` to target a vault
+explicitly.
+
 ## Output Example
 
 ```markdown
@@ -321,7 +345,7 @@ tags:
   - ads
   - hooks
 source: https://www.instagram.com/reels/ABC123/
-source_id: abc123
+source_id: ABC123
 extracted: 2026-06-29
 ---
 

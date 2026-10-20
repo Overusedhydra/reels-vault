@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "reels-vault"
-version = "0.2.0"
+version = "0.3.0"
 description = "Extract transcripts and metadata from Instagram reels into Obsidian or Notion"
 readme = "README.md"
 license = { text = "MIT" }
@@ -26,6 +26,7 @@ dev = ["pytest>=8.0", "build>=1.2"]
 reels-vault = "reels_vault.cli:main"
 reels-vault-connect = "reels_vault.connect:main"
 reels-vault-classify = "reels_vault.classify:main"
+reels-vault-repair = "reels_vault.repair:main"
 reels-vault-mcp = "reels_vault.server:main"
 
 [tool.setuptools.packages.find]

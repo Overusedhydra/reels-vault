@@ -77,7 +77,7 @@ if [ -z "$YTDLP" ]; then
         ;;
     esac
     echo "Installing yt-dlp to $BIN_DIR/yt-dlp"
-    curl -fL --retry 3 -o "$BIN_DIR/yt-dlp" "$YTDLP_URL"
+    curl -fL --proto '=https' --tlsv1.2 --retry 3 -o "$BIN_DIR/yt-dlp" "$YTDLP_URL"
     chmod +x "$BIN_DIR/yt-dlp"
     YTDLP="$BIN_DIR/yt-dlp"
     if [ ! -x "$YTDLP" ]; then
@@ -93,7 +93,11 @@ fi
 if [ -z "$NEMO" ]; then
   if [ "$INSTALL" -eq 1 ]; then
     echo "Installing NVIDIA nemo-speech"
-    curl -fsSL https://github.com/NVIDIA/NeMo-Speech.cpp/raw/main/scripts/install.sh | sh -s -- --binary-only
+    INSTALLER="$(mktemp "${TMPDIR:-/tmp}/nemo-speech-install.XXXXXX")"
+    trap 'rm -f "$INSTALLER"' EXIT
+    curl -fsSL --proto '=https' --tlsv1.2 --retry 3 \
+      -o "$INSTALLER" https://github.com/NVIDIA/NeMo-Speech.cpp/raw/main/scripts/install.sh
+    sh "$INSTALLER" --binary-only
     NEMO="$HOME/.local/bin/nemo-speech"
     if [ ! -x "$NEMO" ]; then
       echo "nemo-speech install did not produce an executable at $NEMO" >&2

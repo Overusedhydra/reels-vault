@@ -154,16 +154,20 @@ def resolve_tool(name: str, env_var: str) -> str | None:
     return None
 
 
-def run_command(command: list[str], cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
+def run_command(command: list[str], cwd: Path | None = None,
+                timeout: int = 1800) -> subprocess.CompletedProcess[str]:
     try:
         result = subprocess.run(
             command,
             cwd=str(cwd) if cwd else None,
             text=True,
             capture_output=True,
+            timeout=timeout,
         )
     except FileNotFoundError as exc:
         raise LiteError(f"Command not found: {command[0]}") from exc
+    except subprocess.TimeoutExpired as exc:
+        raise LiteError(f"{Path(command[0]).name} timed out after {timeout}s") from exc
     if result.returncode != 0:
         detail = (result.stderr or result.stdout or "").strip()
         if len(detail) > 2000:
@@ -197,8 +201,11 @@ def extract_shortcode(url: str) -> str:
 def source_id(url: str) -> str:
     shortcode = extract_shortcode(url)
     if shortcode:
-        return shortcode.lower()
-    return hashlib.sha1((url or "").encode("utf-8")).hexdigest()[:10]
+        return shortcode
+    url = (url or "").strip()
+    if not url:
+        return ""
+    return hashlib.sha1(url.encode("utf-8")).hexdigest()[:10]
 
 
 def note_base_name(metadata: dict[str, Any], url: str) -> str:
@@ -208,7 +215,10 @@ def note_base_name(metadata: dict[str, Any], url: str) -> str:
         upload_date = f"{upload_date[:4]}-{upload_date[4:6]}-{upload_date[6:8]}"
     if not upload_date:
         upload_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    return f"{handle}-reel-{upload_date}-{source_id(url)}"
+    sid = source_id(url)
+    if not sid:
+        sid = hashlib.sha1(f"{handle}:{upload_date}".encode("utf-8")).hexdigest()[:10]
+    return f"{handle}-reel-{upload_date}-{sid}"
 
 
 def yaml_scalar(value: Any) -> str:
@@ -309,6 +319,28 @@ def atomic_write(path: Path, text: str) -> None:
     finally:
         if os.path.exists(tmp):
             os.unlink(tmp)
+
+
+def section_map(body: str) -> dict[str, str]:
+    sections: dict[str, str] = {}
+    matches = list(re.finditer(r"^## (.+)$", body or "", re.M))
+    for index, match in enumerate(matches):
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(body)
+        sections[match.group(1).strip()] = body[match.start():end].rstrip() + "\n"
+    return sections
+
+
+def preserve_sections(old_body: str, new_body: str) -> str:
+    new = section_map(new_body)
+    if not new:
+        return new_body
+    old = section_map(old_body)
+    existing = {name.lower() for name in new}
+    additions = [text for name, text in old.items() if name.lower() not in existing]
+    rebuilt = "\n".join(text.rstrip() for text in new.values()).rstrip() + "\n"
+    if additions:
+        rebuilt += "\n" + "\n\n".join(text.rstrip() for text in additions).rstrip() + "\n"
+    return rebuilt
 
 
 def update_body_fields(body: str, updates: dict[str, Any]) -> str:
@@ -446,7 +478,7 @@ def download_media(
     return max(candidates, key=lambda path: path.stat().st_size)
 
 
-def extract_audio(ffmpeg: str, media: Path, workdir: Path) -> Path:
+def extract_audio(ffmpeg: str, media: Path, workdir: Path) -> Path | None:
     wav = workdir / "audio.wav"
     command = [
         ffmpeg,
@@ -464,9 +496,14 @@ def extract_audio(ffmpeg: str, media: Path, workdir: Path) -> Path:
         "pcm_s16le",
         str(wav),
     ]
-    run_command(command)
+    try:
+        run_command(command, timeout=600)
+    except LiteError as exc:
+        if "does not contain any stream" in str(exc):
+            return None
+        raise
     if not wav.is_file():
-        raise LiteError("ffmpeg did not produce audio.wav.")
+        return None
     return wav
 
 
@@ -599,14 +636,17 @@ def extract_frames(
             "80",
             str(webp),
         ]
-        result = subprocess.run(command, text=True, capture_output=True)
+        try:
+            result = subprocess.run(command, text=True, capture_output=True, timeout=60)
+        except subprocess.TimeoutExpired:
+            continue
         if result.returncode != 0 or not webp.is_file():
             jpg = workdir / f"frame-{index:02d}.jpg"
             command[command.index("libwebp")] = "mjpeg"
             command[command.index("-quality")] = "-q:v"
             command[command.index("-q:v") + 1] = "3"
             command[-1] = str(jpg)
-            run_command(command)
+            run_command(command, timeout=60)
             if jpg.is_file():
                 frames.append({"path": str(jpg), "timestamp": timestamp})
         else:
@@ -678,7 +718,7 @@ def format_note(
             "",
             f"*Language detected: {transcript.get('language', 'auto')}*",
             "",
-            transcript.get("text", "(no speech detected)"),
+            transcript.get("text") or "(no speech detected)",
             "",
         ]
     )
@@ -712,14 +752,14 @@ def append_unique(path: Path, header: str, line: str, marker: str = "") -> None:
             for index, existing in enumerate(lines):
                 if marker in existing:
                     lines[index] = line
-                    path.write_text("\n".join(lines).rstrip("\n") + "\n", encoding="utf-8")
+                    atomic_write(path, "\n".join(lines).rstrip("\n") + "\n")
                     return
         elif line in lines:
             return
     else:
         path.write_text(header, encoding="utf-8")
-    with path.open("a", encoding="utf-8") as handle:
-        handle.write(line + "\n")
+    current = path.read_text(encoding="utf-8") if path.exists() else header
+    atomic_write(path, current.rstrip("\n") + "\n" + line + "\n")
 
 
 def ensure_vault(vault: Path) -> tuple[Path, Path, Path]:
@@ -727,6 +767,8 @@ def ensure_vault(vault: Path) -> tuple[Path, Path, Path]:
     reels.mkdir(parents=True, exist_ok=True)
     index_dir = resolve_child(vault, "index")
     index_dir.mkdir(parents=True, exist_ok=True)
+    for kind in ("topics", "niches", "categories", "industries"):
+        (index_dir / kind).mkdir(parents=True, exist_ok=True)
     creators = resolve_child(vault, "Creators")
     creators.mkdir(parents=True, exist_ok=True)
     root_index = resolve_child(vault, "Index.md")
@@ -737,13 +779,13 @@ def ensure_vault(vault: Path) -> tuple[Path, Path, Path]:
 
 def remove_index_entry(vault: Path, key: str, kind: str, marker: str) -> None:
     index_dir = resolve_child(vault, "index")
-    path = index_dir / f"{slugify(key)}.md"
+    path = index_dir / f"{kind}s" / f"{slugify(key)}.md"
     if not path.is_file():
         return
     lines = path.read_text(encoding="utf-8").splitlines()
     kept = [line for line in lines if marker not in line]
     if len(kept) != len(lines):
-        path.write_text("\n".join(kept).rstrip("\n") + "\n", encoding="utf-8")
+        atomic_write(path, "\n".join(kept).rstrip("\n") + "\n")
 
 
 def update_indexes(vault: Path, frontmatter: dict[str, Any], topic: str, base_name: str) -> None:
@@ -757,18 +799,17 @@ def update_indexes(vault: Path, frontmatter: dict[str, Any], topic: str, base_na
     marker = f"[[{base_name}]]"
     for key, kind in ((niche, "niche"), (category, "category"), (industry, "industry")):
         append_unique(
-            index_dir / f"{slugify(key)}.md",
+            index_dir / f"{kind}s" / f"{slugify(key)}.md",
             f"---\ntags: [index, {kind}]\n---\n\n# {str(key).replace('-', ' ').title()}\n\n",
             entry,
             marker,
         )
-    if topic:
-        append_unique(
-            index_dir / f"{slugify(topic)}.md",
-            f"---\ntags: [index, topic]\n---\n\n# {topic}\n\n",
-            entry,
-            marker,
-        )
+    append_unique(
+        index_dir / "topics" / f"{slugify(topic or 'general')}.md",
+        f"---\ntags: [index, topic]\n---\n\n# {topic or 'general'}\n\n",
+        entry,
+        marker,
+    )
     handle = slugify(frontmatter.get("handle") or creator)
     append_unique(
         creators / f"{handle}.md",
@@ -782,11 +823,15 @@ def find_existing_note(vault: Path, source: str, sid: str) -> Path | None:
     reels = resolve_child(vault, "Reels")
     if not reels.is_dir():
         return None
+    needle = sid or source_id(source)
     for path in reels.rglob("*.md"):
         frontmatter, _ = read_note(path)
-        if frontmatter.get("source") == source:
+        if needle and str(frontmatter.get("source_id") or "") == needle:
             return path
-        if sid and frontmatter.get("source_id") == sid:
+        current = str(frontmatter.get("source") or "")
+        if current == source:
+            return path
+        if needle and extract_shortcode(current) == needle:
             return path
     return None
 
@@ -802,33 +847,49 @@ def write_note(
     ensure_vault(vault)
     existing = find_existing_note(vault, metadata["source"], metadata["source_id"])
     old_frontmatter: dict[str, Any] = {}
+    old_body = ""
     if existing:
-        old_frontmatter, _ = read_note(existing)
+        old_frontmatter, old_body = read_note(existing)
         target = existing
-        topic = str(old_frontmatter.get("topic") or topic or "general")
+        topic = str(topic or old_frontmatter.get("topic") or "general")
     else:
         base = note_base_name(metadata, metadata["source"])
         target = resolve_child(vault, "Reels") / slugify(topic or "general") / f"{base}.md"
     old_classification = str(old_frontmatter.get("classification") or "").lower()
     classified = old_classification in (CLASSIFIED, "done")
+    labels = {
+        key: (old_frontmatter.get(key)
+              if old_frontmatter.get(key) not in (None, "", UNCLASSIFIED)
+              else UNCLASSIFIED)
+        for key in ("niche", "category", "industry")
+    }
     tags = list(metadata.get("tags") or [])
-    if classified:
-        for tag in string_list(old_frontmatter.get("tags")):
-            if tag not in tags:
-                tags.append(tag)
+    for tag in string_list(old_frontmatter.get("tags")):
+        if tag not in tags:
+            tags.append(tag)
+    topics: list[str] = []
+    for value in (old_frontmatter.get("topics"), topic):
+        if isinstance(value, str):
+            value = [value]
+        for item in value or []:
+            text = str(item).strip()
+            if text and text not in topics:
+                topics.append(text)
     frontmatter: dict[str, Any] = {
         "creator": metadata["creator"],
         "handle": metadata["handle"],
         "topic": topic or "general",
-        "niche": old_frontmatter.get("niche", UNCLASSIFIED) if classified else UNCLASSIFIED,
-        "category": old_frontmatter.get("category", UNCLASSIFIED) if classified else UNCLASSIFIED,
-        "industry": old_frontmatter.get("industry", UNCLASSIFIED) if classified else UNCLASSIFIED,
+        "niche": labels["niche"],
+        "category": labels["category"],
+        "industry": labels["industry"],
         "classification": old_frontmatter.get("classification") if classified else PENDING,
         "tags": tags,
         "source": metadata["source"],
         "source_id": metadata["source_id"],
         "extracted": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
     }
+    if topics:
+        frontmatter["topics"] = topics
     frames_rel = ""
     if frames:
         frames_dir = target.parent / "frames" / target.stem
@@ -838,7 +899,13 @@ def write_note(
             if source_file.is_file():
                 shutil.copyfile(source_file, frames_dir / source_file.name)
         frames_rel = frames_dir.relative_to(vault).as_posix()
+        for frame in frames:
+            if (frames_dir / Path(frame["path"]).name).is_file():
+                frame["vault_path"] = f"{frames_rel}/{Path(frame['path']).name}"
     note = format_note(frontmatter, metadata, transcript, topic, model, frames, frames_rel)
+    if existing:
+        _, new_body = parse_frontmatter(note)
+        note = render_frontmatter(frontmatter) + "\n" + preserve_sections(old_body, new_body)
     atomic_write(target, note)
     update_indexes(vault, frontmatter, topic, target.stem)
     return {
@@ -852,7 +919,7 @@ def write_note(
         "classification": frontmatter["classification"],
         "transcript": transcript["text"],
         "language": transcript["language"],
-        "frames": [frame["path"] for frame in frames],
+        "frames": [frame["vault_path"] for frame in frames if frame.get("vault_path")],
     }
 
 
@@ -1058,12 +1125,13 @@ def main(argv: list[str] | None = None) -> int:
                 raise LiteError(f"Obsidian vault not found: {vault}")
             vault = normalise_vault_path(vault)
             ensure_vault(vault)
-            config["vault_path"] = str(vault)
+            lite_config = load_json(config_file())
+            lite_config["vault_path"] = str(vault)
             if args.model:
-                config["model"] = args.model
+                lite_config["model"] = args.model
             if args.cookies_from:
-                config["cookies_from"] = args.cookies_from
-            path = save_config(config)
+                lite_config["cookies_from"] = args.cookies_from
+            path = save_config(lite_config)
             print(json.dumps({"config": str(path), "vault": str(vault)}, indent=2))
             return 0
         if args.command == "status":
@@ -1093,11 +1161,7 @@ def main(argv: list[str] | None = None) -> int:
             nemo_speech = resolve_tool("nemo-speech", "NEMO_SPEECH_BIN")
             missing = [
                 name
-                for name, value in (
-                    ("yt-dlp", yt_dlp),
-                    ("ffmpeg", ffmpeg),
-                    ("nemo-speech", nemo_speech),
-                )
+                for name, value in (("yt-dlp", yt_dlp), ("ffmpeg", ffmpeg))
                 if not value
             ]
             if missing:
@@ -1125,7 +1189,16 @@ def main(argv: list[str] | None = None) -> int:
                 )
                 print("[3/4] Transcribing with NVIDIA " + model, file=sys.stderr)
                 audio = extract_audio(ffmpeg, media, workdir)
-                transcript = transcribe(nemo_speech, audio, model, workdir)
+                if audio:
+                    if not nemo_speech:
+                        raise LiteError(
+                            "Missing nemo-speech. Run setup.sh --install --with-model "
+                            "(macOS/Linux) or setup.ps1 -Install -WithModel (Windows)."
+                        )
+                    transcript = transcribe(nemo_speech, audio, model, workdir)
+                else:
+                    print("No audio track; writing a visual-only note.", file=sys.stderr)
+                    transcript = {"text": "", "language": "unknown", "segments": []}
                 frames = []
                 if args.frames > 0:
                     print("[4/4] Extracting frames", file=sys.stderr)

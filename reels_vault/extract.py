@@ -21,6 +21,7 @@ import asyncio
 import shutil
 from datetime import datetime, timezone
 
+from . import __version__
 from .config import load_config
 from .notes import (
     CLASSIFICATION_PENDING,
@@ -31,6 +32,10 @@ from .notes import (
     split_frontmatter,
 )
 from .storage import StorageManager
+
+_DOWNLOAD_TIMEOUT = 600
+_PROBE_TIMEOUT = 30
+_FRAME_TIMEOUT = 60
 
 
 # ---------------------------------------------------------------------------
@@ -222,6 +227,10 @@ def _netscape_cookie_file(session_file: str | None, output_dir: str) -> str | No
         ]))
     with open(path, "w", encoding="utf-8") as fh:
         fh.write("\n".join(lines) + "\n")
+    try:
+        os.chmod(path, 0o600)
+    except OSError:
+        pass
     return path
 
 
@@ -349,7 +358,7 @@ def extract_metadata(url: str, output_dir: str, cookies_from: str = None,
 
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8",
-                                errors="replace")
+                                errors="replace", timeout=_DOWNLOAD_TIMEOUT)
     finally:
         if cookie_file and os.path.exists(cookie_file):
             os.remove(cookie_file)
@@ -423,7 +432,7 @@ def extract_frames(video_path: str, output_dir: str, interval: float = 1.0,
                "-i", video_path, "-vframes", "1", *scale,
                "-c:v", "libwebp", "-quality", str(quality), "-compression_level", "6",
                frame_path]
-        result = subprocess.run(cmd, capture_output=True, text=True)
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=_FRAME_TIMEOUT)
         if result.returncode == 0 and os.path.exists(frame_path):
             frame_paths.append({"path": frame_path, "timestamp": ts})
             continue
@@ -432,7 +441,7 @@ def extract_frames(video_path: str, output_dir: str, interval: float = 1.0,
         frame_path = os.path.join(frames_dir, f"frame-{ts_str}.jpg")
         cmd2 = [_resolve_tool("ffmpeg"), "-y", "-ss", str(ts),
                 "-i", video_path, "-vframes", "1", *scale, "-q:v", "10", frame_path]
-        result = subprocess.run(cmd2, capture_output=True, text=True)
+        result = subprocess.run(cmd2, capture_output=True, text=True, timeout=_FRAME_TIMEOUT)
         if result.returncode == 0 and os.path.exists(frame_path):
             frame_paths.append({"path": frame_path, "timestamp": ts})
     return frame_paths
@@ -442,7 +451,7 @@ def _get_video_duration(video_path: str) -> float:
     """Return video duration in seconds via ffprobe, or -1 on failure."""
     cmd = [_resolve_tool("ffprobe"), "-v", "error", "-show_entries",
            "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", video_path]
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=_PROBE_TIMEOUT)
     try:
         return float(result.stdout.strip())
     except (ValueError, TypeError):
@@ -459,7 +468,7 @@ def has_audio_stream(video_path: str) -> bool:
         "-show_entries", "stream=index", "-of", "csv=p=0", video_path,
     ]
     result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8",
-                            errors="replace")
+                            errors="replace", timeout=_PROBE_TIMEOUT)
     if result.returncode != 0:
         return True  # let ffmpeg produce the real error
     return bool(result.stdout.strip())
@@ -479,7 +488,7 @@ def extract_audio(video_path: str, output_dir: str) -> str | None:
         audio_path,
     ]
     result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8",
-                            errors="replace")
+                            errors="replace", timeout=_DOWNLOAD_TIMEOUT)
     if result.returncode != 0:
         if "does not contain any stream" in (result.stderr or ""):
             return None
@@ -555,13 +564,16 @@ def format_output(metadata: dict, transcript: dict, original_url: str = "",
         "industry": industry,
         "classification": classification,
         "source": url_display,
-        "source_id": source_id(url_display),
         "extracted": extracted,
     }
+    sid = source_id(url_display)
+    if sid:
+        frontmatter["source_id"] = sid
     if handle:
         frontmatter["handle"] = handle
     if topic:
         frontmatter["topic"] = topic
+        frontmatter["topics"] = [topic]
     if tags:
         frontmatter["tags"] = tags
 
@@ -728,7 +740,7 @@ def run_extraction(url: str, whisper_model: str = "base", topic: str = "",
         base_name = manager.resolve_base(metadata, topic, source)
         frames_rel = ""
         if frames and manager.supports_frames:
-            frames_rel = f"Reels/{slugify(topic or 'general')}/frames/{base_name}"
+            frames_rel = manager.frames_rel_dir(topic, source, base_name)
 
         note = format_output(
             metadata, transcript, original_url=source or url,
@@ -749,10 +761,18 @@ def run_extraction(url: str, whisper_model: str = "base", topic: str = "",
             for item in saved:
                 location = item.get("path") or item.get("url") or item.get("ref")
                 emit(f"Saved ({item['backend']}): {location}")
+            if frames_rel and any(item.get("backend") == "obsidian" for item in saved):
+                for frame in frames:
+                    frame["vault_path"] = f"{frames_rel}/{os.path.basename(frame['path'])}"
+                    frame.pop("path", None)
             for error in errors:
                 emit(f"Warning: {error}")
         elif save:
             errors.append("No storage backend is configured. Run reels-vault-connect.")
+
+        if own_temp:
+            for frame in frames:
+                frame.pop("path", None)
 
         return {
             "url": source or url,
@@ -780,6 +800,7 @@ def main():
     parser = argparse.ArgumentParser(
         description="Extract and save an Instagram Reel to your vault."
     )
+    parser.add_argument("--version", action="version", version=f"reels-vault {__version__}")
     parser.add_argument("url", help="Instagram Reel URL or a local cached video")
     parser.add_argument("--whisper-model", default="base",
                         help="Whisper model: tiny, base, small, medium, large (default: base)")
