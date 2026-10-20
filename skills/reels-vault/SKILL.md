@@ -17,6 +17,10 @@ with Shazam, extract optional frames, and save a tagged note to Obsidian,
 Notion, or both. Classification is **agent-in-the-loop**: you label the reel
 after saving it. The repo has no keyword tables or classification API.
 
+> **Windows:** replace `.venv/bin/` with `.venv\Scripts\` and `python3` with
+> `py` (or `python`) in the commands below. The `reels-vault-lite` skill is the
+> simpler Windows path if you do not need Notion, Shazam, or MCP.
+
 ## Step 1 — Locate the install (every time)
 
 ```bash

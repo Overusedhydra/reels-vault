@@ -29,7 +29,7 @@ Instagram Reel → Download → Transcribe → Identify Music → File by Topic 
 - **Organize** in Obsidian, Notion, or both — grouped by topic, not dumped in a pile
 - **Classify with your AI** — the agent that saves a reel fills in niche, category, and industry
 - **Connect** to Claude/Cursor via MCP so your AI can search your reels
-- **No cloud, no paid APIs** — extraction runs on your machine (Instagram cookies may be needed for downloads; see Limitations)
+- **No cloud transcription or paid AI APIs** — extraction runs on your machine (Instagram cookies may be needed for downloads; music ID uses Shazam’s free endpoint; see Limitations)
 
 ---
 
@@ -43,11 +43,19 @@ folder:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Overusedhydra/reels-vault/main/install.sh | bash
+mkdir -p ~/.claude/skills
 ln -s ~/reels-vault/skills/reels-vault ~/.claude/skills/reels-vault
 ```
 
 > Installed somewhere other than `~/reels-vault`? Point the symlink at
 > `<install-dir>/skills/reels-vault` instead.
+
+On Windows, first run the Windows install steps under Requirements, then create a directory junction instead of `ln -s`:
+
+```powershell
+New-Item -ItemType Directory -Force "$HOME\.claude\skills" | Out-Null
+New-Item -ItemType Junction -Path "$HOME\.claude\skills\reels-vault" -Target "$HOME\reels-vault\skills\reels-vault"
+```
 
 Now just talk to Claude — no JSON to edit, no server to configure:
 
@@ -58,7 +66,39 @@ The skill finds your install automatically (via the path `reels-vault-connect` r
 and runs the same CLI under the hood. For other MCP clients (Claude Desktop,
 Cursor, Continue), use the MCP server setup below instead.
 
-### The easy way — use Claude (no terminal needed)
+### Low-space option — Obsidian only
+
+If disk space or Windows support matters more than Notion, music ID, or MCP,
+use the lite skill. It skips PyTorch, Playwright, and the pip-installed package, and
+uses NVIDIA's native `nemo-speech` runtime instead:
+
+```bash
+git clone https://github.com/Overusedhydra/reels-vault.git ~/reels-vault
+mkdir -p ~/.claude/skills
+ln -s ~/reels-vault/skills/reels-vault-lite ~/.claude/skills/reels-vault-lite
+```
+
+The lite path still needs Python 3.9+ and Git (or download the repo ZIP).
+Install `ffmpeg` (`brew install ffmpeg` on macOS, `winget install Gyan.FFmpeg`
+on Windows), then ask Claude to set up the lite skill. The setup downloads a
+prebuilt native runtime and the ~708 MB Nemotron 3.5 Q8 model:
+
+```bash
+~/.claude/skills/reels-vault-lite/setup.sh --install --with-model
+```
+
+Windows:
+
+```powershell
+New-Item -ItemType Directory -Force "$HOME\.claude\skills" | Out-Null
+New-Item -ItemType Junction -Path "$HOME\.claude\skills\reels-vault-lite" -Target "$HOME\reels-vault\skills\reels-vault-lite"
+powershell -ExecutionPolicy Bypass -File "$HOME\.claude\skills\reels-vault-lite\setup.ps1" -Install -WithModel
+```
+
+It saves Markdown notes to Obsidian only. Music ID, Notion, MCP search, and
+bulk import stay in the full install.
+
+### Claude Desktop / Cursor — via MCP
 
 **Step 1:** Install Reels Vault (paste this in your terminal — one time only):
 
@@ -79,7 +119,9 @@ curl -fsSL https://raw.githubusercontent.com/Overusedhydra/reels-vault/main/inst
 ```
 
 > Replace `/Users/you/reels-vault` with the actual path. Run `pwd` in the
-> `reels-vault` folder to find it.
+> `reels-vault` folder to find it. On Windows, install manually (see
+> Requirements below) and use
+> `C:\Users\you\reels-vault\.venv\Scripts\reels-vault-mcp.exe`.
 
 **Step 3:** Quit and reopen Claude Desktop.
 
@@ -185,7 +227,7 @@ Each note can embed **key frames** — WebP stills pulled every
 1280), under a `Visual Frames` heading. Skip them with `--no-frames`.
 Notion-only storage skips frames because Notion has no matching image workflow.
 
-### 4. Let Claude do it for you (recommended — no terminal!)
+### 4. Let Claude do it for you (recommended — just chat)
 
 This is the easiest way to use Reels Vault. After a one-time setup, you just
 **talk to Claude** — paste a reel link and it does everything:
@@ -221,8 +263,8 @@ Once it's connected, Claude can `extract_reel`, `search_reels`, `list_topics`,
 `list_creators`, `read_note`, `classify_reel`, `list_unclassified`, `reindex`,
 and `vault_status` — all by itself.
 
-> Prefer doing it by hand? The `reels-vault` command in step 2 above always
-> works without any of this.
+> Prefer doing it by hand? The `.venv/bin/reels-vault` command in the terminal
+> example above always works without any of this.
 
 ---
 
@@ -314,13 +356,23 @@ Here's how to take a company's ads from this to this...
 
 - **Python** 3.10+ (enforced by `setup.sh`)
 - **ffmpeg** (auto-installed on macOS/Linux via Homebrew/apt)
-- **yt-dlp**, **Whisper**, **shazamio**, **Playwright**, **PyYAML** — installed by `setup.sh`
-- ~1 GB disk for the Whisper `base` model
+- **yt-dlp**, **Whisper**, **shazamio**, **Playwright**, **instaloader**, **PyYAML** — installed by `setup.sh`
+- ~1.7 GB disk for the first full install (Python venv, Whisper `base`, and Playwright Chromium)
 
 **macOS / Linux:** run `./setup.sh`.
-**Windows:** install [Python](https://python.org), [ffmpeg](https://ffmpeg.org/download.html),
-then `pip install -e ".[mcp]"` inside a venv (or `pip install -r requirements.txt`
-for the runtime dependencies only).
+
+**Windows:** install [Python 3.10+](https://python.org),
+[ffmpeg](https://ffmpeg.org/download.html), and Git, then:
+
+```powershell
+git clone https://github.com/Overusedhydra/reels-vault.git "$HOME\reels-vault"
+Set-Location "$HOME\reels-vault"
+python -m venv .venv
+.venv\Scripts\activate
+pip install -e ".[mcp]"
+python -m playwright install chromium
+.venv\Scripts\reels-vault-connect
+```
 
 ## Limitations
 
@@ -345,3 +397,4 @@ Issues and PRs welcome.
 - [openai-whisper](https://github.com/openai/whisper) — transcription
 - [shazamio](https://github.com/dotenv-io/shazamio) — music identification
 - [MCP](https://github.com/modelcontextprotocol) — AI tool integration
+- [NVIDIA NeMo-Speech.cpp](https://github.com/NVIDIA/NeMo-Speech.cpp) — lite ASR runtime

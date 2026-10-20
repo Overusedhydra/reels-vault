@@ -14,8 +14,10 @@ or classification API keys.
 - `reels_vault/connect.py` — one-time Obsidian/Notion setup, including Notion database creation.
 - `reels_vault/bulk_import.py`, `reels_vault/import_creator.py` — cached bulk downloads and creator discovery.
 - `reels_vault/server.py` — FastMCP tools: extract, search, list, read, classify, reindex, status.
-- `skills/reels-vault/` — Claude skill. It delegates to the installed package; there are no duplicate script copies.
+- `skills/reels-vault/` — full Claude skill. It delegates to the installed package; there are no duplicate script copies.
+- `skills/reels-vault-lite/` — low-space Obsidian-only skill using `yt-dlp`, `ffmpeg`, and NVIDIA `nemo-speech`; no pip package, MCP, Playwright, Notion, or Shazam.
 - `tests/test_output.py` — formatting, YAML, Obsidian save/search/classify, path-safety tests.
+- `tests/test_lite_skill.py` — frontmatter, metadata, and fake-tool save/classify/search tests for the lite helper.
 
 ## Commands
 
@@ -27,6 +29,7 @@ or classification API keys.
 ./.venv/bin/reels-vault-mcp --check
 ./.venv/bin/python -m pip install -e ".[dev]"   # once, for tests
 ./.venv/bin/python -m pytest -q
+./skills/reels-vault-lite/setup.sh --install --with-model   # lite path (macOS/Linux)
 ```
 
 ## Status
@@ -36,7 +39,7 @@ or classification API keys.
 - Classification: pending by default; agent fills it via `reels-vault-classify` or MCP `classify_reel`.
 - Frames: Obsidian only; WebP, capped by `--frame-max-width` (default 1280).
 - Indexes: auto-built for Obsidian; Notion uses database views.
-- Install: `setup.sh` uses uv/pip, installs the MCP extra, and downloads Playwright Chromium.
+- Install: `setup.sh` uses uv/pip, installs the MCP extra, and downloads Playwright Chromium. The lite path uses `nemo-speech` and a ~708 MB Q8 model instead of PyTorch/Playwright.
 
 ## Decisions
 

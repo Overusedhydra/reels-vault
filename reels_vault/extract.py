@@ -39,9 +39,13 @@ from .storage import StorageManager
 
 def _resolve_tool(name: str) -> str:
     """Find a CLI tool, preferring the one installed in this Python's env."""
-    venv_bin = os.path.join(os.path.dirname(sys.executable), name)
-    if os.path.exists(venv_bin):
-        return venv_bin
+    filenames = [name]
+    if os.name == "nt" and not name.lower().endswith(".exe"):
+        filenames.insert(0, f"{name}.exe")
+    for filename in filenames:
+        venv_bin = os.path.join(os.path.dirname(sys.executable), filename)
+        if os.path.exists(venv_bin):
+            return venv_bin
     return name
 
 
