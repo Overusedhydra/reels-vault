@@ -12,7 +12,7 @@ echo "Reels Vault — Setup"
 echo "==================="
 
 PYTHON=""
-for candidate in python3.13 python3.12 python3.11 python3.10 python3 python; do
+for candidate in python3.12 python3.11 python3.10 python3.13 python3 python; do
     if command -v "$candidate" >/dev/null 2>&1; then
         if "$candidate" -c 'import sys; sys.exit(0 if sys.version_info >= (3,10) else 1)' 2>/dev/null; then
             PYTHON="$candidate"

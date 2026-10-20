@@ -13,6 +13,7 @@ from reels_vault.notes import (  # noqa: E402
     dump_frontmatter,
     slugify,
     split_frontmatter,
+    source_id,
     update_note_metadata,
 )
 from reels_vault.storage import StorageManager, StorageError  # noqa: E402
@@ -43,12 +44,13 @@ def _transcript(text="Here's the transcript."):
     }
 
 
-def _save(manager, source="https://www.instagram.com/reel/AAA/", **metadata_overrides):
+def _save(manager, source="https://www.instagram.com/reel/AAA/", topic="content-creation",
+          **metadata_overrides):
     metadata = _metadata(url=source, **metadata_overrides)
-    note = format_output(metadata, _transcript(), original_url=source, topic="content-creation")
+    note = format_output(metadata, _transcript(), original_url=source, topic=topic)
     frontmatter, _ = split_frontmatter(note)
-    base = manager.resolve_base(metadata, "content-creation", source)
-    manager.save(note, frontmatter, metadata, _transcript(), {}, "content-creation", base)
+    base = manager.resolve_base(metadata, topic, source)
+    manager.save(note, frontmatter, metadata, _transcript(), {}, topic, base)
     return base, frontmatter, metadata
 
 
@@ -62,7 +64,7 @@ def test_format_output_has_valid_frontmatter():
     assert frontmatter["topic"] == "content-creation"
     assert frontmatter["tags"] == ["ads", "marketing"]
     assert frontmatter["classification"] == CLASSIFICATION_PENDING
-    assert frontmatter["source_id"] == "aaa"
+    assert frontmatter["source_id"] == "AAA"
     assert "## Transcript" in body
     assert "Here's the transcript." in body
     assert "## Timestamped Transcript" in body
@@ -129,6 +131,45 @@ def test_obsidian_save_search_update_and_read():
         assert updated["classification"] == CLASSIFICATION_DONE
         assert updated["niche"] == "business"
         assert "**Niche:** business" in manager.read(ref)
+
+
+def test_resave_preserves_classification_and_cross_topic_identity():
+    with tempfile.TemporaryDirectory() as tmp:
+        manager = StorageManager({"vault_path": tmp, "storage": "obsidian"}, "obsidian")
+        base, _, _ = _save(manager)
+        path = Path(tmp) / "Reels" / "content-creation" / f"{base}.md"
+        ref = f"Reels/content-creation/{base}.md"
+        manager.update_metadata(ref, {"classification": CLASSIFICATION_DONE,
+                                      "niche": "business"})
+        with path.open("a", encoding="utf-8") as fh:
+            fh.write("\n## My Note\n\nmanual note\n")
+
+        again, _, _ = _save(manager, topic="hooks")
+        assert again == base
+        assert not (Path(tmp) / "Reels" / "hooks" / f"{base}.md").exists()
+        frontmatter, body = split_frontmatter(path.read_text(encoding="utf-8"))
+        assert frontmatter["classification"] == CLASSIFICATION_DONE
+        assert frontmatter["niche"] == "business"
+        assert "manual note" in body
+        assert "**Niche:** business" in body
+        assert "**Classification:** classified" in body
+        assert frontmatter["topics"] == ["content-creation", "hooks"]
+
+
+def test_source_id_is_case_sensitive_and_empty_is_not_shared():
+    assert source_id("https://www.instagram.com/reel/AbC/") == "AbC"
+    assert source_id("") == ""
+    assert source_id("   ") == ""
+
+
+def test_obsidian_indexes_are_namespaced():
+    with tempfile.TemporaryDirectory() as tmp:
+        manager = StorageManager({"vault_path": tmp, "storage": "obsidian"}, "obsidian")
+        _save(manager)
+        assert (Path(tmp) / "index" / "topics" / "content-creation.md").is_file()
+        assert (Path(tmp) / "index" / "niches" / "unclassified.md").is_file()
+        assert not (Path(tmp) / "index" / "content-creation.md").exists()
+        assert manager.reindex() == 1
 
 
 def test_duplicate_source_reuses_note_and_storage_is_traversal_safe():
@@ -232,12 +273,26 @@ def test_notion_save_reuses_page_and_updates_metadata():
     assert fake.children["page-1"]
 
     fake.store.update_metadata(first["ref"], {"niche": "business",
+                                               "category": "tip",
+                                               "industry": "saas",
+                                               "topics": ["content-creation", "hooks"],
+                                               "tags": ["hooks"],
                                                "classification": CLASSIFICATION_DONE})
     props = fake.pages["page-1"]["properties"]
     assert props["Niche"]["rich_text"][0]["text"]["content"] == "business"
     assert props["Classification"]["select"]["name"] == CLASSIFICATION_DONE
     assert fake.deleted
     assert fake.children["page-1"]
+
+    fake.store.save(note, frontmatter, metadata, _transcript(), {},
+                    "content-creation", "base")
+    props = fake.pages["page-1"]["properties"]
+    assert props["Niche"]["rich_text"][0]["text"]["content"] == "business"
+    assert props["Category"]["rich_text"][0]["text"]["content"] == "tip"
+    assert props["Industry"]["rich_text"][0]["text"]["content"] == "saas"
+    assert props["Classification"]["select"]["name"] == CLASSIFICATION_DONE
+    assert {tag["name"] for tag in props["Tags"]["multi_select"]} == {"hooks", "ads", "marketing"}
+    assert props["Topics"]["rich_text"][0]["text"]["content"] == "content-creation, hooks"
 
 
 def test_both_mode_classification_updates_matching_notion_page():
@@ -307,3 +362,4 @@ def test_playwright_cookie_conversion():
         text = Path(path).read_text(encoding="utf-8")
         assert "sessionid" in text and "instagram.com" in text
         assert text.startswith("# Netscape HTTP Cookie File")
+        assert os.stat(path).st_mode & 0o777 == 0o600

@@ -19,6 +19,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from . import __version__
 from .config import load_config, taxonomy_path
 from .notes import CLASSIFICATION_DONE, UNCLASSIFIED
 from .storage import StorageManager, StorageError
@@ -67,6 +68,11 @@ def validate(updates: dict[str, Any], taxonomy: dict[str, list[str]]) -> dict[st
         if isinstance(raw, str):
             raw = [part.strip() for part in raw.split(",")]
         clean["tags"] = [str(item).strip() for item in raw if str(item).strip()]
+    if "topics" in updates:
+        raw = updates["topics"]
+        if isinstance(raw, str):
+            raw = [part.strip() for part in raw.split(",")]
+        clean["topics"] = [str(item).strip() for item in raw if str(item).strip()]
     if updates.get("topic"):
         clean["topic"] = str(updates["topic"]).strip()
     clean["classification"] = str(updates.get("classification") or CLASSIFICATION_DONE)
@@ -74,19 +80,26 @@ def validate(updates: dict[str, Any], taxonomy: dict[str, list[str]]) -> dict[st
 
 
 def _read_metadata(args) -> dict[str, Any]:
-    if args.metadata_json:
-        return json.loads(args.metadata_json)
-    if args.metadata_file:
-        return json.loads(Path(args.metadata_file).read_text(encoding="utf-8"))
-    if not sys.stdin.isatty():
-        raw = sys.stdin.read().strip()
-        if raw:
-            return json.loads(raw)
-    raise StorageError("Provide --metadata-json, --metadata-file, or JSON on stdin.")
+    try:
+        if args.metadata_json:
+            data = json.loads(args.metadata_json)
+        elif args.metadata_file:
+            data = json.loads(Path(args.metadata_file).read_text(encoding="utf-8"))
+        elif not sys.stdin.isatty():
+            raw = sys.stdin.read().strip()
+            data = json.loads(raw) if raw else {}
+        else:
+            data = {}
+    except (OSError, json.JSONDecodeError) as exc:
+        raise StorageError(f"Invalid classification JSON: {exc}") from exc
+    if not isinstance(data, dict) or not data:
+        raise StorageError("Provide --metadata-json, --metadata-file, or JSON on stdin.")
+    return data
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Classify an extracted reel using the agent's own AI.")
+    parser.add_argument("--version", action="version", version=f"reels-vault-classify {__version__}")
     parser.add_argument("--note", default="", help="Note ref from search/list-unclassified")
     parser.add_argument("--source", default="", help="Find the note by its Instagram source URL")
     parser.add_argument("--metadata-json", default="", help="Classification JSON")

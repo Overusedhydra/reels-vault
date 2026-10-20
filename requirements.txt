@@ -6,5 +6,4 @@ playwright>=1.60.0
 instaloader>=4.14
 PyYAML>=6.0
 
-# MCP server (optional — only needed to expose your vault to Claude/Cursor)
-mcp>=1.0
+# MCP is optional: install with `pip install -e ".[mcp]"`.

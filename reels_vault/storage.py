@@ -13,20 +13,75 @@ import re
 import time
 import urllib.error
 import urllib.request
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
+
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - Windows
+    fcntl = None
 
 from . import config as config_mod
 from .notes import (
     CLASSIFICATION_DONE,
     CLASSIFICATION_PENDING,
     UNCLASSIFIED,
+    atomic_write_bytes,
     note_base_name,
+    normalize_source,
+    preserve_sections,
     read_note,
+    render_note,
+    same_source,
     slugify,
+    source_id,
+    split_frontmatter,
+    update_body_metadata,
     update_note_metadata,
 )
+
+
+def _merge_frontmatter(old: dict[str, Any], new: dict[str, Any],
+                       source: str) -> dict[str, Any]:
+    merged = dict(old)
+    merged.update(new)
+    old_class = str(old.get("classification") or "").lower()
+    new_class = str(new.get("classification") or "").lower()
+    if old_class in (CLASSIFICATION_DONE, "done", "classified") and new_class not in (
+            CLASSIFICATION_DONE, "done", "classified"):
+        merged["classification"] = old["classification"]
+    for key in ("niche", "category", "industry"):
+        value = new.get(key)
+        if (value in (None, "", UNCLASSIFIED)) and old.get(key) not in (None, "", UNCLASSIFIED):
+            merged[key] = old[key]
+    topics: list[str] = []
+    for value in (old.get("topic"), old.get("topics"),
+                  new.get("topic"), new.get("topics")):
+        if isinstance(value, str):
+            value = [value]
+        for item in value or []:
+            text = str(item).strip()
+            if text and text not in topics:
+                topics.append(text)
+    if topics:
+        merged["topics"] = topics
+    tags: list[str] = []
+    for value in (old.get("tags"), new.get("tags")):
+        if isinstance(value, str):
+            value = [value]
+        for item in value or []:
+            text = str(item).strip()
+            if text and text not in tags:
+                tags.append(text)
+    if tags:
+        merged["tags"] = tags
+    merged["source_id"] = str(new.get("source_id") or old.get("source_id")
+                             or source_id(source) or "")
+    if not merged["source_id"]:
+        merged.pop("source_id", None)
+    return merged
 
 
 class StorageError(RuntimeError):
@@ -54,7 +109,31 @@ FROM "Reels"
 WHERE source
 SORT extracted DESC
 ```
+
+Generated indexes live under `index/topics`, `index/niches`,
+`index/categories`, and `index/industries`.  Creator pages live under
+`Creators/`.
 """
+
+INDEX_KINDS = ("topics", "niches", "categories", "industries")
+
+
+@contextmanager
+def _vault_lock(root: Path):
+    """Serialize writers so concurrent saves cannot lose index entries."""
+    root.mkdir(parents=True, exist_ok=True)
+    lock_path = root / ".reels-vault.lock"
+    handle = lock_path.open("a+")
+    try:
+        if fcntl is not None:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        yield
+    finally:
+        try:
+            if fcntl is not None:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        finally:
+            handle.close()
 
 
 def _resolve_child(parent: Path, name: str) -> Path:
@@ -86,6 +165,8 @@ class ObsidianStore:
         self.root.mkdir(parents=True, exist_ok=True)
         self.reels_dir.mkdir(parents=True, exist_ok=True)
         self.index_dir.mkdir(parents=True, exist_ok=True)
+        for kind in INDEX_KINDS:
+            (self.index_dir / kind).mkdir(parents=True, exist_ok=True)
         self.creators_dir.mkdir(parents=True, exist_ok=True)
         index = self.root / "Index.md"
         if not index.exists():
@@ -110,6 +191,8 @@ class ObsidianStore:
         if not self.root or not self.reels_dir.is_dir():
             return
         for path in sorted(self.reels_dir.rglob("*.md")):
+            if path.name.startswith("."):
+                continue
             yield path
 
     def _note_record(self, path: Path) -> dict[str, Any] | None:
@@ -118,6 +201,9 @@ class ObsidianStore:
         except (OSError, UnicodeDecodeError):
             return None
         rel = str(path.relative_to(self.root))
+        topics = frontmatter.get("topics") or []
+        if isinstance(topics, str):
+            topics = [topics]
         return {
             "ref": rel,
             "backend": self.backend,
@@ -125,51 +211,88 @@ class ObsidianStore:
             "creator": frontmatter.get("creator", ""),
             "handle": frontmatter.get("handle", ""),
             "topic": frontmatter.get("topic", ""),
+            "topics": [str(item) for item in topics if str(item).strip()],
             "niche": frontmatter.get("niche", UNCLASSIFIED),
             "category": frontmatter.get("category", UNCLASSIFIED),
             "industry": frontmatter.get("industry", UNCLASSIFIED),
             "classification": frontmatter.get("classification", CLASSIFICATION_PENDING),
             "source": frontmatter.get("source", ""),
+            "source_id": frontmatter.get("source_id", ""),
+            "sourced": bool(frontmatter.get("source")),
             "extracted": frontmatter.get("extracted", ""),
             "path": str(path),
             "text": body,
         }
 
+    def _find_source_note(self, source: str = "", sid: str = ""
+                          ) -> tuple[Path, dict[str, Any], str] | None:
+        needle = (sid or source_id(source)).strip()
+        wanted = normalize_source(source)
+        if not needle and not wanted:
+            return None
+        for path in self.iter_reels():
+            try:
+                frontmatter, body, _ = read_note(path)
+            except (OSError, UnicodeDecodeError):
+                continue
+            current = str(frontmatter.get("source_id") or "").strip()
+            current_source = str(frontmatter.get("source") or "")
+            current_id = current or source_id(current_source)
+            if needle and current_id == needle:
+                return path, frontmatter, body
+            if wanted and normalize_source(current_source) == wanted:
+                return path, frontmatter, body
+            if source and current_source and same_source(source, current_source, needle, current_id):
+                return path, frontmatter, body
+        return None
+
     def resolve_base(self, metadata: dict[str, Any], topic: str, source: str) -> str:
-        """Reuse an existing note for the same source, else a stable new name."""
+        """Reuse an existing note for the same source across the whole vault."""
         if not self.root:
             return note_base_name(metadata, source)
+        found = self._find_source_note(source)
+        if found:
+            return found[0].stem
         target = self.topic_dir(topic)
         candidate = target / f"{note_base_name(metadata, source)}.md"
         if candidate.exists():
-            frontmatter, _, _ = read_note(candidate)
-            if frontmatter.get("source") == source or not source:
-                return candidate.stem
-        if target.is_dir():
-            for note in target.glob("*.md"):
-                frontmatter, _, _ = read_note(note)
-                if source and frontmatter.get("source") == source:
-                    return note.stem
+            return candidate.stem
         return note_base_name(metadata, source)
+
+    def frames_rel_dir(self, topic: str, source: str, base_name: str) -> str:
+        found = self._find_source_note(source)
+        path = found[0] if found else self.topic_dir(topic) / f"{base_name}.md"
+        return f"{path.parent.relative_to(self.root).as_posix()}/frames/{path.stem}"
 
     def save(self, note: str, frontmatter: dict[str, Any], metadata: dict[str, Any],
              transcript: dict[str, Any], music: dict[str, Any], topic: str,
              base_name: str, frames: list[dict[str, Any]] | None = None) -> dict[str, Any]:
         self.ensure()
-        target_dir = self.topic_dir(topic)
-        target_dir.mkdir(parents=True, exist_ok=True)
-        path = target_dir / f"{base_name}.md"
-        path.write_text(note, encoding="utf-8")
-
-        if frames:
-            frames_dir = target_dir / "frames" / base_name
-            frames_dir.mkdir(parents=True, exist_ok=True)
-            for frame in frames:
-                src = Path(frame["path"])
-                if src.is_file():
-                    (frames_dir / src.name).write_bytes(src.read_bytes())
-
-        self.update_indexes(frontmatter, topic, base_name)
+        source = str(frontmatter.get("source") or metadata.get("url") or "")
+        sid = str(frontmatter.get("source_id") or source_id(source))
+        found = self._find_source_note(source, sid)
+        if found:
+            path, old_frontmatter, old_body = found
+            frontmatter = _merge_frontmatter(old_frontmatter, frontmatter, source)
+            _, new_body = split_frontmatter(note)
+            body = preserve_sections(old_body, new_body)
+            body = update_body_metadata(body, frontmatter)
+            text = render_note(frontmatter, body)
+            base_name = path.stem
+        else:
+            target_dir = self.topic_dir(topic)
+            path = target_dir / f"{base_name}.md"
+            text = note
+        with _vault_lock(self.root):
+            atomic_write_bytes(path, text.encode("utf-8"))
+            if frames:
+                frames_dir = path.parent / "frames" / path.stem
+                frames_dir.mkdir(parents=True, exist_ok=True)
+                for frame in frames:
+                    src = Path(frame["path"])
+                    if src.is_file():
+                        atomic_write_bytes(frames_dir / src.name, src.read_bytes())
+            self._update_indexes(frontmatter, topic, path.stem)
         return {
             "backend": self.backend,
             "path": str(path),
@@ -179,38 +302,41 @@ class ObsidianStore:
 
     def _append_unique(self, path: Path, header: str, line: str) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
-        if path.exists():
-            if line in path.read_text(encoding="utf-8").splitlines():
-                return
-        else:
-            path.write_text(header, encoding="utf-8")
-        with path.open("a", encoding="utf-8") as fh:
-            fh.write(line + "\n")
+        text = path.read_text(encoding="utf-8") if path.exists() else header
+        marker = line.split("]]", 1)[0] + "]]"
+        if marker in text:
+            return
+        text = text.rstrip() + "\n" + line + "\n"
+        atomic_write_bytes(path, text.encode("utf-8"))
 
     def update_indexes(self, frontmatter: dict[str, Any], topic: str, base_name: str) -> None:
+        with _vault_lock(self.root):
+            self._update_indexes(frontmatter, topic, base_name)
+
+    def _update_indexes(self, frontmatter: dict[str, Any], topic: str, base_name: str) -> None:
         creator = frontmatter.get("creator", "Unknown")
         niche = frontmatter.get("niche") or UNCLASSIFIED
         category = frontmatter.get("category") or UNCLASSIFIED
         industry = frontmatter.get("industry") or UNCLASSIFIED
         date = frontmatter.get("extracted") or datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        entry = f"- [[{base_name}]] — {creator} ({topic or 'general'}) — {date}"
-        for key, kind in ((niche, "niche"), (category, "category"), (industry, "industry")):
+        topic = topic or str(frontmatter.get("topic") or "general")
+        entry = f"- [[{base_name}]] — {creator} ({topic}) — {date}"
+        for kind, key in (("niches", niche), ("categories", category), ("industries", industry)):
             self._append_unique(
-                self.index_dir / f"{slugify(key)}.md",
-                f"---\ntags: [index, {kind}]\n---\n\n# {str(key).replace('-', ' ').title()}\n\n",
+                self.index_dir / kind / f"{slugify(key)}.md",
+                f"---\ntags: [index, {kind[:-1]}]\n---\n\n# {str(key).replace('-', ' ').title()}\n\n",
                 entry,
             )
-        if topic:
-            self._append_unique(
-                self.index_dir / f"{slugify(topic)}.md",
-                f"---\ntags: [index, topic]\n---\n\n# {topic}\n\n",
-                entry,
-            )
+        self._append_unique(
+            self.index_dir / "topics" / f"{slugify(topic)}.md",
+            f"---\ntags: [index, topic]\n---\n\n# {topic}\n\n",
+            entry,
+        )
         handle = slugify(frontmatter.get("handle") or creator)
         self._append_unique(
             self.creators_dir / f"{handle}.md",
             f"---\ntags: [creator]\n---\n\n# {creator}\n\n",
-            f"- [[{base_name}]] ({topic or 'general'}) — {date}",
+            f"- [[{base_name}]] ({topic}) — {date}",
         )
 
     def rebuild_indexes(self) -> int:
@@ -218,20 +344,22 @@ class ObsidianStore:
         if not self.root:
             raise StorageError("Obsidian is not connected.")
         self.ensure()
-        if self.index_dir.is_dir():
-            for path in self.index_dir.glob("*.md"):
-                path.unlink()
-        if self.creators_dir.is_dir():
-            for path in self.creators_dir.glob("*.md"):
-                path.unlink()
         count = 0
-        for path in self.iter_reels():
-            record = self._note_record(path)
-            if not record:
-                continue
-            fm, _, _ = read_note(path)
-            self.update_indexes(fm, str(fm.get("topic") or ""), path.stem)
-            count += 1
+        with _vault_lock(self.root):
+            for path in list(self.index_dir.rglob("*.md")) + list(self.creators_dir.glob("*.md")):
+                try:
+                    path.unlink()
+                except OSError:
+                    pass
+            for path in self.iter_reels():
+                try:
+                    fm, _, _ = read_note(path)
+                except (OSError, UnicodeDecodeError):
+                    continue
+                if not fm.get("source"):
+                    continue
+                self._update_indexes(fm, str(fm.get("topic") or ""), path.stem)
+                count += 1
         return count
 
     def search(self, query: str = "", creator: str = "", topic: str = "",
@@ -247,11 +375,12 @@ class ObsidianStore:
             text = record.pop("text", "")
             if c and c not in str(record.get("creator", "")).lower() and c not in str(record.get("handle", "")).lower():
                 continue
-            if t and t not in str(record.get("topic", "")).lower():
+            if t and t not in str(record.get("topic", "")).lower() and not any(
+                    t in str(item).lower() for item in record.get("topics", [])):
                 continue
             haystack = " ".join(str(record.get(key, "")) for key in
                                 ("title", "creator", "handle", "topic", "niche",
-                                 "category", "industry", "source")) + "\n" + text
+                                 "category", "industry", "source", "source_id")) + "\n" + text
             if q and q not in haystack.lower():
                 continue
             if q:
@@ -282,7 +411,7 @@ class ObsidianStore:
         counts: dict[str, int] = {}
         for path in self.iter_reels():
             record = self._note_record(path)
-            if record:
+            if record and record.get("sourced"):
                 topic = str(record.get("topic") or "general")
                 counts[topic] = counts.get(topic, 0) + 1
         return [{"topic": key, "count": value} for key, value in sorted(counts.items())]
@@ -291,7 +420,7 @@ class ObsidianStore:
         counts: dict[str, dict[str, Any]] = {}
         for path in self.iter_reels():
             record = self._note_record(path)
-            if not record:
+            if not record or not record.get("sourced"):
                 continue
             name = str(record.get("creator") or "Unknown")
             row = counts.setdefault(name, {"creator": name, "handle": record.get("handle", ""), "count": 0})
@@ -314,7 +443,7 @@ class ObsidianStore:
         out = []
         for path in self.iter_reels():
             record = self._note_record(path)
-            if not record:
+            if not record or not record.get("sourced"):
                 continue
             if record.get("classification") not in (CLASSIFICATION_DONE, "done", "classified"):
                 record.pop("text", None)
@@ -324,12 +453,12 @@ class ObsidianStore:
         return out
 
     def find_source(self, source: str) -> dict[str, Any] | None:
-        for path in self.iter_reels():
-            frontmatter, _, _ = read_note(path)
-            if frontmatter.get("source") == source:
-                return {"backend": self.backend, "ref": str(path.relative_to(self.root)),
-                        "path": str(path)}
-        return None
+        found = self._find_source_note(source)
+        if not found:
+            return None
+        path = found[0]
+        return {"backend": self.backend, "ref": str(path.relative_to(self.root)),
+                "path": str(path)}
 
     def source_for(self, ref: str) -> str:
         path = (self.root / ref).resolve()
@@ -361,6 +490,8 @@ NOTION_PROPERTIES = {
     "Creator": {"rich_text": {}},
     "Handle": {"rich_text": {}},
     "Topic": {"rich_text": {}},
+    "Topics": {"rich_text": {}},
+    "Source ID": {"rich_text": {}},
     "Niche": {"rich_text": {}},
     "Category": {"rich_text": {}},
     "Industry": {"rich_text": {}},
@@ -458,7 +589,7 @@ class NotionStore:
             for name, definition in NOTION_PROPERTIES.items():
                 if name in self._schema:
                     continue
-                if definition.get("title") and has_title:
+                if "title" in definition and has_title:
                     continue
                 missing[name] = definition
             if missing:
@@ -497,6 +628,8 @@ class NotionStore:
             "Creator": ("creator", "rich_text"),
             "Handle": ("handle", "rich_text"),
             "Topic": ("topic", "rich_text"),
+            "Topics": ("topics", "rich_text"),
+            "Source ID": ("source_id", "rich_text"),
             "Niche": ("niche", "rich_text"),
             "Category": ("category", "rich_text"),
             "Industry": ("industry", "rich_text"),
@@ -507,6 +640,8 @@ class NotionStore:
             target = self._find_property(prop_name, kind)
             if target:
                 value = topic if key == "topic" and topic else frontmatter.get(key, metadata.get(key, ""))
+                if key == "topics" and isinstance(value, (list, tuple)):
+                    value = ", ".join(str(item) for item in value)
                 props[target] = self._rich_text(value)
         target = self._find_property("Tags", "multi_select")
         if target:
@@ -516,6 +651,10 @@ class NotionStore:
         if target:
             source = str(frontmatter.get("source", ""))
             props[target] = {"url": source if source.startswith(("http://", "https://")) else None}
+        target = self._find_property("Source ID", "rich_text")
+        if target:
+            sid = str(frontmatter.get("source_id") or source_id(str(frontmatter.get("source", ""))))
+            props[target] = self._rich_text(sid)
         target = self._find_property("Extracted", "date")
         if target:
             date = str(frontmatter.get("extracted", ""))
@@ -603,27 +742,51 @@ class NotionStore:
             except StorageError:
                 pass
 
-    def _find_page(self, source: str) -> dict[str, Any] | None:
-        if not source:
-            return None
+    def _find_page(self, source: str = "", sid: str = "") -> dict[str, Any] | None:
         self.ensure()
-        target = self._find_property("Source", "url")
-        if not target:
-            return None
-        data = self._request("POST", f"/databases/{self.database_id}/query", {
-            "filter": {"property": target, "url": {"equals": source}},
-            "page_size": 1,
-        })
-        results = data.get("results") or []
-        return results[0] if results else None
+        lookups: list[tuple[str, str, str]] = []
+        source_prop = self._find_property("Source", "url")
+        if source and source_prop:
+            lookups.append((source_prop, "url", source))
+        id_prop = self._find_property("Source ID", "rich_text")
+        if sid and id_prop:
+            lookups.append((id_prop, "rich_text", sid))
+        for prop, kind, value in lookups:
+            data = self._request("POST", f"/databases/{self.database_id}/query", {
+                "filter": {"property": prop, kind: {"equals": value}},
+                "page_size": 1,
+            })
+            results = data.get("results") or []
+            if results:
+                return results[0]
+        return None
+
+    def _page_frontmatter(self, page: dict[str, Any]) -> dict[str, Any]:
+        topics_raw = str(self._page_value(page, "Topics", "rich_text") or "")
+        return {
+            "topic": self._page_value(page, "Topic", "rich_text"),
+            "topics": [part.strip() for part in topics_raw.split(",") if part.strip()],
+            "source_id": self._page_value(page, "Source ID", "rich_text"),
+            "niche": self._page_value(page, "Niche", "rich_text"),
+            "category": self._page_value(page, "Category", "rich_text"),
+            "industry": self._page_value(page, "Industry", "rich_text"),
+            "tags": self._page_value(page, "Tags", "multi_select"),
+            "classification": self._page_value(page, "Classification", "select"),
+            "source": self._page_value(page, "Source", "url"),
+        }
 
     def save(self, note: str, frontmatter: dict[str, Any], metadata: dict[str, Any],
              transcript: dict[str, Any], music: dict[str, Any], topic: str,
              base_name: str, frames: list[dict[str, Any]] | None = None) -> dict[str, Any]:
         self.ensure()
         source = str(frontmatter.get("source", ""))
+        sid = str(frontmatter.get("source_id") or source_id(source))
+        existing = self._find_page(source, sid)
+        if existing:
+            frontmatter = _merge_frontmatter(
+                self._page_frontmatter(existing), frontmatter, source
+            )
         props = self._properties(frontmatter, metadata, topic)
-        existing = self._find_page(source)
         blocks = self._blocks(metadata, transcript, music, topic)
         if existing:
             page_id = existing["id"]
@@ -644,11 +807,12 @@ class NotionStore:
                 "url": page.get("url", ""), "id": page_id}
 
     def _query_all(self, filter: dict[str, Any] | None = None, page_size: int = 100,
-                   max_pages: int = 20) -> list[dict[str, Any]]:
+                   max_pages: int | None = None) -> list[dict[str, Any]]:
         self.ensure()
         results: list[dict[str, Any]] = []
         cursor = None
-        for _ in range(max_pages):
+        pages = 0
+        while max_pages is None or pages < max_pages:
             payload: dict[str, Any] = {"page_size": page_size, "sorts": [
                 {"timestamp": "created_time", "direction": "descending"}]}
             if filter:
@@ -657,9 +821,12 @@ class NotionStore:
                 payload["start_cursor"] = cursor
             data = self._request("POST", f"/databases/{self.database_id}/query", payload)
             results.extend(data.get("results", []))
+            pages += 1
             if not data.get("has_more"):
                 break
             cursor = data.get("next_cursor")
+            if not cursor:
+                break
         return results
 
     def _page_value(self, page: dict[str, Any], name: str, kind: str) -> Any:
@@ -667,9 +834,15 @@ class NotionStore:
         target = self._find_property(name, kind) or name
         prop = props.get(target) or {}
         if kind == "title":
-            return "".join(part.get("plain_text", "") for part in prop.get("title", []))
+            return "".join(
+                part.get("plain_text") or (part.get("text") or {}).get("content", "")
+                for part in prop.get("title", [])
+            )
         if kind == "rich_text":
-            return "".join(part.get("plain_text", "") for part in prop.get("rich_text", []))
+            return "".join(
+                part.get("plain_text") or (part.get("text") or {}).get("content", "")
+                for part in prop.get("rich_text", [])
+            )
         if kind == "select":
             return (prop.get("select") or {}).get("name", "")
         if kind == "multi_select":
@@ -690,6 +863,8 @@ class NotionStore:
             "creator": self._page_value(page, "Creator", "rich_text"),
             "handle": self._page_value(page, "Handle", "rich_text"),
             "topic": self._page_value(page, "Topic", "rich_text"),
+            "topics": [item.strip() for item in str(self._page_value(page, "Topics", "rich_text") or "").split(",") if item.strip()],
+            "source_id": self._page_value(page, "Source ID", "rich_text"),
             "niche": self._page_value(page, "Niche", "rich_text") or UNCLASSIFIED,
             "category": self._page_value(page, "Category", "rich_text") or UNCLASSIFIED,
             "industry": self._page_value(page, "Industry", "rich_text") or UNCLASSIFIED,
@@ -724,12 +899,29 @@ class NotionStore:
             filter = conditions[0]
         elif conditions:
             filter = {"and": conditions}
-        records = [self._record(page) for page in self._query_all(filter=filter)]
-        for record in records:
-            record["snippet"] = " ".join(
-                str(record.get(key, "")) for key in ("creator", "handle", "topic", "niche", "source")
-            ).strip()
-        return records[:max(1, limit)]
+        pages = self._query_all(filter=filter)
+        needle = (query or "").lower()
+        records: list[dict[str, Any]] = []
+        for page in pages:
+            record = self._record(page)
+            metadata = " ".join(str(record.get(key, "")) for key in
+                                ("title", "creator", "handle", "topic", "topics",
+                                 "niche", "category", "industry", "source")).lower()
+            if needle and needle not in metadata:
+                page_id = page.get("id", "")
+                body = self.read(f"notion:{page_id}") if page_id else ""
+                if needle not in body.lower():
+                    continue
+                idx = body.lower().find(needle)
+                record["snippet"] = body[max(0, idx - 100):idx + 320].replace("\n", " ").strip()
+            else:
+                record["snippet"] = " ".join(
+                    str(record.get(key, "")) for key in ("creator", "handle", "topic", "niche", "source")
+                ).strip()
+            records.append(record)
+            if len(records) >= max(1, limit):
+                break
+        return records
 
     def read(self, ref: str) -> str:
         self.ensure()
@@ -815,19 +1007,26 @@ class NotionStore:
         props: dict[str, Any] = {}
         for name, kind in (("Niche", "rich_text"), ("Category", "rich_text"),
                            ("Industry", "rich_text"), ("Topic", "rich_text"),
+                           ("Topics", "rich_text"), ("Source ID", "rich_text"),
                            ("Creator", "rich_text"), ("Handle", "rich_text")):
-            key = name.lower()
+            key = name.lower().replace(" ", "_")
             if key in updates:
                 target = self._find_property(name, kind)
                 if target:
-                    props[target] = self._rich_text(updates[key])
+                    value = updates[key]
+                    if isinstance(value, (list, tuple)):
+                        value = ", ".join(str(item) for item in value)
+                    props[target] = self._rich_text(value)
         if "tags" in updates:
             target = self._find_property("Tags", "multi_select")
             if target:
-                props[target] = {"multi_select": [{"name": str(tag)[:100]} for tag in updates["tags"]]}
+                tags = updates["tags"]
+                if isinstance(tags, str):
+                    tags = [part.strip() for part in tags.split(",")]
+                props[target] = {"multi_select": [{"name": str(tag)[:100]} for tag in tags if str(tag).strip()]}
         target = self._find_property("Classification", "select")
-        if target:
-            props[target] = {"select": {"name": str(updates.get("classification", CLASSIFICATION_DONE))}}
+        if target and "classification" in updates:
+            props[target] = {"select": {"name": str(updates["classification"])}}
         if props:
             self._request("PATCH", f"/pages/{page_id}", {"properties": props})
         return {"backend": self.backend, "ref": f"notion:{page_id}"}
@@ -866,6 +1065,11 @@ class StorageManager:
         if self.obsidian and self.obsidian.configured:
             return self.obsidian.resolve_base(metadata, topic, source)
         return note_base_name(metadata, source)
+
+    def frames_rel_dir(self, topic: str, source: str, base_name: str) -> str:
+        if self.obsidian and self.obsidian.configured:
+            return self.obsidian.frames_rel_dir(topic, source, base_name)
+        return f"Reels/{slugify(topic or 'general')}/frames/{base_name}"
 
     def save(self, note: str, frontmatter: dict[str, Any], metadata: dict[str, Any],
              transcript: dict[str, Any], music: dict[str, Any], topic: str,
@@ -924,19 +1128,33 @@ class StorageManager:
         return self.obsidian.read(ref)
 
     def list_topics(self) -> list[dict[str, Any]]:
-        stores = [store for store in (self.obsidian, self.notion) if store and store.configured]
-        if self.obsidian and self.obsidian.configured:
-            return self.obsidian.list_topics()
-        for store in stores:
-            return store.list_topics()
-        return []
+        counts: dict[str, int] = {}
+        for store in (self.obsidian, self.notion):
+            if not store or not store.configured:
+                continue
+            try:
+                for row in store.list_topics():
+                    topic = str(row.get("topic") or "general")
+                    counts[topic] = max(counts.get(topic, 0), int(row.get("count") or 0))
+            except Exception:
+                continue
+        return [{"topic": key, "count": value} for key, value in sorted(counts.items())]
 
     def list_creators(self) -> list[dict[str, Any]]:
-        if self.obsidian and self.obsidian.configured:
-            return self.obsidian.list_creators()
-        if self.notion and self.notion.configured:
-            return self.notion.list_creators()
-        return []
+        counts: dict[str, dict[str, Any]] = {}
+        for store in (self.obsidian, self.notion):
+            if not store or not store.configured:
+                continue
+            try:
+                for row in store.list_creators():
+                    name = str(row.get("creator") or "Unknown")
+                    current = counts.get(name)
+                    if current and int(current.get("count") or 0) >= int(row.get("count") or 0):
+                        continue
+                    counts[name] = dict(row, creator=name)
+            except Exception:
+                continue
+        return sorted(counts.values(), key=lambda item: item["creator"].lower())
 
     def status(self) -> dict[str, Any]:
         out = {"storage": self.backend, "backends": []}
