@@ -90,7 +90,7 @@ def main() -> None:
                         help="Pass --process-only to bulk_import.py")
     parser.add_argument("--no-music", action="store_true")
     parser.add_argument("--no-frames", action="store_true")
-    parser.add_argument("--whisper-model", default="base")
+    parser.add_argument("--whisper-model", default="")
     parser.add_argument("--delay", type=float, default=3.0)
     args = parser.parse_args()
 
@@ -116,9 +116,10 @@ def main() -> None:
 
     cmd = [
         sys.executable, "-m", "reels_vault.bulk_import", str(out), "--topic", topic,
-        "--whisper-model", args.whisper_model, "--delay", str(args.delay),
-        "--storage", storage,
+        "--delay", str(args.delay), "--storage", storage,
     ]
+    if args.whisper_model:
+        cmd += ["--whisper-model", args.whisper_model]
     if args.download_only:
         cmd.append("--download-only")
     if args.process_only:

@@ -135,7 +135,9 @@ def process_all(urls: list[str], cache_dir: str, topic: str, args,
         mp4 = os.path.join(cache_dir, f"{rid}.mp4")
         print(f"[{i}/{len(todo)}] {rid}", file=sys.stderr, end="", flush=True)
         cmd = [sys.executable, "-m", "reels_vault.extract", mp4, "--topic", topic,
-               "--whisper-model", args.whisper_model, "--downloader", "auto"]
+               "--downloader", "auto"]
+        if args.whisper_model:
+            cmd += ["--whisper-model", args.whisper_model]
         if args.storage:
             cmd += ["--storage", args.storage]
         if args.no_music:
@@ -163,7 +165,8 @@ def main() -> None:
     parser.add_argument("source", help="File of reel URLs, or raw URLs separated by spaces")
     parser.add_argument("--topic", required=True, help="Topic folder (e.g. agentic-ai)")
     parser.add_argument("--cache-dir", default=os.path.expanduser("~/.cache/reels-vault/bulk"))
-    parser.add_argument("--whisper-model", default="base")
+    parser.add_argument("--whisper-model", default=None,
+                        help="Whisper model (default: config whisper_model, else base)")
     parser.add_argument("--session-file", default="",
                         help="Playwright storage_state JSON (default: config sessions.playwright)")
     parser.add_argument("--storage", choices=["obsidian", "notion", "both"], default=None)
