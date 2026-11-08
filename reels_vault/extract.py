@@ -496,11 +496,133 @@ def extract_audio(video_path: str, output_dir: str) -> str | None:
     return audio_path
 
 
-def transcribe(audio_path: str, model_name: str = "base") -> dict:
-    """Transcribe audio with Whisper."""
+TRANSCRIBERS = ("auto", "faster-whisper", "openai-whisper")
+DEVICES = ("auto", "cuda", "cpu")
+_MODEL_CACHE: dict = {}
+
+
+def resolve_transcriber(name: str = "auto") -> str:
+    """Pick the Whisper implementation: faster-whisper when installed."""
+    name = (name or "auto").lower()
+    if name in ("faster-whisper", "openai-whisper"):
+        return name
+    try:
+        import faster_whisper  # noqa: F401
+        return "faster-whisper"
+    except ImportError:
+        return "openai-whisper"
+
+
+def _preload_cuda_libs() -> None:
+    """Make pip-installed cuBLAS/cuDNN (nvidia-* wheels) visible to CTranslate2.
+
+    CTranslate2 dlopens ``libcublas.so.12`` and ``libcudnn*.so.9`` by name;
+    loading them globally first avoids having to set ``LD_LIBRARY_PATH``.
+    """
+    if os.name != "posix" or _MODEL_CACHE.get("_cuda_preloaded"):
+        return
+    _MODEL_CACHE["_cuda_preloaded"] = True
+    import ctypes
+    import glob
+    import site
+    roots = list(site.getsitepackages()) + [site.getusersitepackages()]
+    patterns = ("cublas/lib/libcublasLt.so.12", "cublas/lib/libcublas.so.12",
+                "cudnn/lib/libcudnn*.so.9")
+    for root in roots:
+        for pattern in patterns:
+            for path in sorted(glob.glob(os.path.join(root, "nvidia", pattern))):
+                try:
+                    ctypes.CDLL(path, mode=ctypes.RTLD_GLOBAL)
+                except OSError:
+                    pass
+
+
+def _cuda_available(backend: str) -> bool:
+    try:
+        if backend == "faster-whisper":
+            import ctranslate2
+            return ctranslate2.get_cuda_device_count() > 0
+        import torch
+        return bool(torch.cuda.is_available())
+    except Exception:
+        return False
+
+
+def _devices(backend: str, device: str) -> list:
+    device = (device or "auto").lower()
+    if device in ("cuda", "cpu"):
+        return [device]
+    return ["cuda", "cpu"] if _cuda_available(backend) else ["cpu"]
+
+
+def _read_wav_16k(audio_path: str):
+    """Load the 16 kHz mono PCM WAV written by ``extract_audio`` as float32.
+
+    Passing samples avoids faster-whisper's PyAV decoder, whose API changes
+    between PyAV releases.
+    """
+    import wave
+
+    import numpy as np
+
+    with wave.open(audio_path, "rb") as wav:
+        if wav.getframerate() != 16000 or wav.getnchannels() != 1 or wav.getsampwidth() != 2:
+            return audio_path
+        frames = wav.readframes(wav.getnframes())
+    return np.frombuffer(frames, dtype=np.int16).astype(np.float32) / 32768.0
+
+
+def _transcribe_faster(audio_path: str, model_name: str, device: str) -> dict:
+    from faster_whisper import WhisperModel
+
+    try:
+        audio = _read_wav_16k(audio_path)
+    except Exception:
+        audio = audio_path
+    last_error = None
+    for dev in _devices("faster-whisper", device):
+        key = ("faster-whisper", model_name, dev)
+        try:
+            if dev == "cuda":
+                _preload_cuda_libs()
+            model = _MODEL_CACHE.get(key)
+            if model is None:
+                compute_type = "float16" if dev == "cuda" else "int8"
+                model = WhisperModel(model_name, device=dev, compute_type=compute_type)
+                _MODEL_CACHE[key] = model
+            segments, info = model.transcribe(audio, beam_size=5)
+            segments = [
+                {"start": seg.start, "end": seg.end, "text": seg.text.strip()}
+                for seg in segments
+            ]
+        except Exception as exc:  # missing CUDA libs surface on first use
+            _MODEL_CACHE.pop(key, None)
+            last_error = exc
+            if dev == "cuda":
+                print(f"  CUDA transcription failed ({exc}); falling back to CPU",
+                      file=sys.stderr)
+            continue
+        return {
+            "text": " ".join(seg["text"] for seg in segments).strip(),
+            "language": info.language or "unknown",
+            "segments": segments,
+            "device": dev,
+            "model": model_name,
+            "transcriber": "faster-whisper",
+        }
+    raise RuntimeError(f"faster-whisper failed: {last_error}")
+
+
+def _transcribe_openai(audio_path: str, model_name: str, device: str) -> dict:
     import whisper
-    model = whisper.load_model(model_name)
-    result = model.transcribe(audio_path)
+
+    dev = _devices("openai-whisper", device)[0]
+    key = ("openai-whisper", model_name, dev)
+    model = _MODEL_CACHE.get(key)
+    if model is None:
+        model = whisper.load_model(model_name, device=dev)
+        _MODEL_CACHE[key] = model
+    result = model.transcribe(audio_path, fp16=(dev == "cuda"))
     return {
         "text": result["text"].strip(),
         "language": result.get("language", "unknown"),
@@ -508,7 +630,24 @@ def transcribe(audio_path: str, model_name: str = "base") -> dict:
             {"start": seg["start"], "end": seg["end"], "text": seg["text"].strip()}
             for seg in result.get("segments", [])
         ],
+        "device": dev,
+        "model": model_name,
+        "transcriber": "openai-whisper",
     }
+
+
+def transcribe(audio_path: str, model_name: str = "base", transcriber: str = "auto",
+               device: str = "auto") -> dict:
+    """Transcribe audio locally with Whisper.
+
+    ``transcriber`` is ``faster-whisper`` (CTranslate2), ``openai-whisper``, or
+    ``auto`` (faster-whisper when installed).  ``device`` ``auto`` uses CUDA
+    when a GPU is usable and falls back to the CPU.  Loaded models are cached,
+    so a batch run loads each model once.
+    """
+    if resolve_transcriber(transcriber) == "faster-whisper":
+        return _transcribe_faster(audio_path, model_name, device)
+    return _transcribe_openai(audio_path, model_name, device)
 
 
 def identify_music(audio_path: str) -> dict:
@@ -658,6 +797,17 @@ def format_output(metadata: dict, transcript: dict, original_url: str = "",
 # Shared pipeline
 # ---------------------------------------------------------------------------
 
+def transcription_settings(cfg: dict, whisper_model: str | None = None,
+                           transcriber: str | None = None,
+                           device: str | None = None) -> tuple:
+    """Resolve model/implementation/device from arguments, then config."""
+    return (
+        whisper_model or cfg.get("whisper_model") or "base",
+        transcriber or cfg.get("transcriber") or "auto",
+        device or cfg.get("whisper_device") or "auto",
+    )
+
+
 def _default_smart_meta() -> dict:
     """Classification is intentionally left to the calling AI agent."""
     return {
@@ -667,13 +817,14 @@ def _default_smart_meta() -> dict:
     }
 
 
-def run_extraction(url: str, whisper_model: str = "base", topic: str = "",
+def run_extraction(url: str, whisper_model: str | None = None, topic: str = "",
                    no_music: bool = False, no_frames: bool = False,
                    frame_interval: float = 1.0, frame_max_width: int = 1280,
                    cookies_from: str = None, session_file: str = None,
                    downloader: str = "auto", output_dir: str = None,
                    save_dir: str = None, save: bool = True,
-                   storage: str = None, log=None) -> dict:
+                   storage: str = None, log=None, transcriber: str | None = None,
+                   device: str | None = None) -> dict:
     """Run the full extraction pipeline and optionally save the note.
 
     This is the single implementation used by both the CLI and the MCP server.
@@ -685,6 +836,8 @@ def run_extraction(url: str, whisper_model: str = "base", topic: str = "",
             log(message)
 
     cfg = load_config()
+    whisper_model, transcriber, device = transcription_settings(
+        cfg, whisper_model, transcriber, device)
     if save_dir:
         cfg = dict(cfg)
         cfg.update({"storage": "obsidian", "vault_path": os.path.expanduser(save_dir)})
@@ -707,7 +860,7 @@ def run_extraction(url: str, whisper_model: str = "base", topic: str = "",
         audio_path = extract_audio(video_path, work_dir)
         if audio_path:
             emit(f"Transcribing with Whisper ({whisper_model})...")
-            transcript = transcribe(audio_path, whisper_model)
+            transcript = transcribe(audio_path, whisper_model, transcriber, device)
         else:
             emit("No audio track found; saving a visual-only note.")
             transcript = {"text": "", "language": "unknown", "segments": []}
@@ -802,8 +955,13 @@ def main():
     )
     parser.add_argument("--version", action="version", version=f"reels-vault {__version__}")
     parser.add_argument("url", help="Instagram Reel URL or a local cached video")
-    parser.add_argument("--whisper-model", default="base",
-                        help="Whisper model: tiny, base, small, medium, large (default: base)")
+    parser.add_argument("--whisper-model", default=None,
+                        help="Whisper model: tiny, base, small, medium, large-v3, "
+                             "large-v3-turbo (default: config whisper_model, else base)")
+    parser.add_argument("--transcriber", choices=TRANSCRIBERS, default=None,
+                        help="Whisper implementation (default: faster-whisper if installed)")
+    parser.add_argument("--device", choices=DEVICES, default=None,
+                        help="Transcription device (default: CUDA when usable, else CPU)")
     parser.add_argument("--output-dir", default=None,
                         help="Directory for temporary files (default: system temp)")
     parser.add_argument("--save-dir", default=None,
@@ -842,6 +1000,7 @@ def main():
             downloader=args.downloader, output_dir=args.output_dir,
             save_dir=args.save_dir, save=not args.no_save,
             storage=args.storage, log=lambda message: print(message, file=sys.stderr),
+            transcriber=args.transcriber, device=args.device,
         )
     except Exception as exc:
         print(f"Error: {exc}", file=sys.stderr)

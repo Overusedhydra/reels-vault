@@ -20,6 +20,9 @@ dependencies = [
 
 [project.optional-dependencies]
 mcp = ["mcp>=1.0"]
+# Faster local transcription (CTranslate2). Add "cuda" on NVIDIA/Linux for GPU.
+fast = ["faster-whisper>=1.1.0"]
+cuda = ["nvidia-cublas-cu12", "nvidia-cudnn-cu12>=9,<10"]
 dev = ["pytest>=8.0", "build>=1.2"]
 
 [project.scripts]

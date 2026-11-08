@@ -115,7 +115,7 @@ def build_server():
         return _json(_manager().status())
 
     @mcp.tool()
-    def extract_reel(url: str, topic: str = "", whisper_model: str = "base",
+    def extract_reel(url: str, topic: str = "", whisper_model: str = "",
                      skip_music: bool = False, skip_frames: bool = False,
                      storage: str = "") -> str:
         """Download, transcribe, and save a reel to Obsidian and/or Notion.
